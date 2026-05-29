@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}
+  {% if container_name %}Blobs: {{ container_name }} - StorageUI{% else %}Blob Containers - StorageUI{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="glass-card" style="border-radius: 12px; padding: 24px;">
+    
+    {% if container_name %}
+    <!-- File Browser State -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+            <div>
+                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-folder-open" style="color: var(--accent-blue);"></i>
+                    Container: {{ container_name }}
+                </h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Upload multiple files, download data, or manage virtual directories inside this container.</p>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <form method="POST" action="{{ url_for('ui.delete_container') }}" onsubmit="return confirm('Are you sure you want to delete container \'{{ container_name }}\' and all its contents? This action is irreversible!');" style="display: inline;">
+                    <input type="hidden" name="container_name" value="{{ container_name }}">
+                    <button class="btn btn-danger btn-sm" style="display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-trash-can"></i> Delete Container
+                    </button>
+                </form>
+                <a href="{{ url_for('ui.blobs') }}" class="btn btn-neutral btn-sm">
+                    <i class="fa-solid fa-arrow-left"></i> Back to Containers
+                </a>
+            </div>
+        </div>
+
+        <!-- Toolbar (Multi-file Upload and Virtual Folders) -->
+        <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;">
+            <!-- Multi-file Upload Form -->
+            <form method="POST" enctype="multipart/form-data" style="display: flex; align-items: center; gap: 10px; flex-grow: 1;">
+                <div class="input-icon-group">
+                    <i class="fa-solid fa-folder icon-inside" style="font-size: 13px;"></i>
+                    <input type="text" name="folder" placeholder="Folder path (e.g. reports/)" style="width: 220px; padding-left: 36px;">
+                </div>
+                <label class="btn btn-neutral btn-sm" style="margin-bottom: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-file-circle-plus"></i> Choose Files
+                    <input type="file" name="files" multiple style="display: none;" onchange="updateFilesNameDisplay(this, 'blobUploadNamePreview')">
+                </label>
+                <span id="blobUploadNamePreview" style="font-size: 12px; color: var(--text-muted); font-weight: 500;">No files chosen</span>
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> Upload Files
+                </button>
+            </form>
+
+            <!-- Create Folder Form -->
+            <form method="POST" action="{{ url_for('ui.create_blob_folder', container_name=container_name) }}" style="display: flex; align-items: center; gap: 8px;">
+                <div class="input-icon-group">
+                    <i class="fa-solid fa-folder-plus icon-inside" style="font-size: 13px;"></i>
+                    <input type="text" name="folder" required placeholder="New folder name" style="width: 180px; padding-left: 36px;">
+                </div>
+                <button class="btn btn-neutral btn-sm" style="display: flex; align-items: center; gap: 4px;">
+                    <i class="fa-solid fa-folder-plus"></i> Create Folder
+                </button>
+            </form>
+        </div>
+
+        <!-- Blobs Data Table -->
+        <div class="table-responsive" style="margin-top: 10px;">
+            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Name</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px;">Size</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if blobs %}
+                    {% for b in blobs %}
+                    <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
+                        <td style="padding: 12px; color: var(--text-normal); word-break: break-all;">
+                            {% if b.name.endswith('/') %}
+                                <i class="fa-solid fa-folder" style="color: var(--warning); margin-right: 6px;"></i> <strong>{{ b.name }}</strong> <span class="badge badge-neutral" style="font-size: 9px; padding: 2px 4px; margin-left: 6px;">Virtual Folder</span>
+                            {% else %}
+                                <i class="fa-solid fa-file" style="color: var(--text-muted); margin-right: 6px;"></i> {{ b.name }}
+                            {% endif %}
+                        </td>
+                        <td style="padding: 12px; color: var(--text-muted);">
+                            {% if b.name.endswith('/') %}
+                                --
+                            {% else %}
+                                {{ (b.size or 0) | filesizeformat }}
+                            {% endif %}
+                        </td>
+                        <td style="padding: 12px; text-align: center; display: flex; gap: 8px; justify-content: center;">
+                            {% if not b.name.endswith('/') %}
+                            <a class="btn btn-neutral btn-sm" href="{{ url_for('ui.download_blob', container_name=container_name, blob_name=b.name) }}" style="padding: 4px 8px; font-size: 11px;">
+                                <i class="fa-solid fa-download"></i> Download
+                            </a>
+                            {% endif %}
+                            <form method="POST" action="{{ url_for('ui.delete_blob', container_name=container_name) }}" onsubmit="return confirm('Are you sure you want to delete \'{{ b.name }}\'?');">
+                                <input type="hidden" name="blob_name" value="{{ b.name }}">
+                                <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="3" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                            This container is currently empty.
+                        </td>
+                    </tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% else %}
+    <!-- Containers List State -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        <!-- Containers Table Header Toolbar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+            <div>
+                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white);">
+                    <i class="fa-solid fa-database" style="color: var(--primary); margin-right: 8px;"></i>
+                    Blob Containers
+                </h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Containers partition blobs inside your storage account. Create, inspect, or delete them.</p>
+            </div>
+            <!-- In-line create container form -->
+            <form method="POST" action="{{ url_for('ui.create_container') }}" style="display: flex; align-items: center; gap: 8px;">
+                <div class="input-icon-group">
+                    <i class="fa-solid fa-tag icon-inside" style="font-size: 13px; top: 12px;"></i>
+                    <input type="text" name="container_name" required placeholder="new-container-name" style="width: 200px; padding-left: 36px; height: 38px;">
+                </div>
+                <button class="btn btn-primary" style="height: 38px; padding-top: 0; padding-bottom: 0;">
+                    <i class="fa-solid fa-circle-plus"></i> Create Container
+                </button>
+            </form>
+        </div>
+
+        <!-- Table Listing -->
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Container Name</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if containers %}
+                    {% for c in containers %}
+                    <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
+                        <td style="padding: 12px; font-weight: 500; color: var(--text-white);">
+                            <i class="fa-solid fa-folder" style="color: #0078d4; margin-right: 8px;"></i>
+                            {{ c.name }}
+                        </td>
+                        <td style="padding: 12px; text-align: center; display: flex; gap: 8px; justify-content: center;">
+                            <a class="btn btn-neutral btn-sm" href="{{ url_for('ui.view_blobs', container_name=c.name) }}" style="padding: 4px 8px; font-size: 11px;">
+                                <i class="fa-solid fa-folder-open"></i> Browse
+                            </a>
+                            <form method="POST" action="{{ url_for('ui.delete_container') }}" onsubmit="return confirm('Are you sure you want to delete container \'{{ c.name }}\' and all its contents? This action is irreversible!');">
+                                <input type="hidden" name="container_name" value="{{ c.name }}">
+                                <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="2" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                            No Blob Containers found in this storage account.
+                        </td>
+                    </tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

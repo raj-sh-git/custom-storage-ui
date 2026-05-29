@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}
+  {% if table_name %}Table: {{ table_name }} - StorageUI{% else %}Tables - StorageUI{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="glass-card" style="border-radius: 12px; padding: 24px;">
+    
+    {% if table_name %}
+    <!-- Table Entity Browser State -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+            <div>
+                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-table" style="color: var(--warning);"></i>
+                    Table: {{ table_name }}
+                </h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Insert new key-value entities, perform queries, or delete entries inside this NoSQL table.</p>
+            </div>
+            <a href="{{ url_for('ui.tables') }}" class="btn btn-neutral btn-sm">
+                <i class="fa-solid fa-arrow-left"></i> Back to Tables
+            </a>
+        </div>
+
+        <!-- Toolbar (Insert Entity Form) -->
+        <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none;">
+            <h5 style="font-size: 13px; font-weight: 600; color: var(--text-white); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Insert New Entity</h5>
+            <form method="POST" action="{{ url_for('ui.add_entity', table_name=table_name) }}" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+                <div style="display: flex; flex-direction: column; gap: 6px; width: 140px;">
+                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">PartitionKey *</span>
+                    <div class="input-icon-group">
+                        <input name="partition_key" required placeholder="e.g. US" style="padding: 6px 12px;">
+                    </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px; width: 140px;">
+                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">RowKey *</span>
+                    <div class="input-icon-group">
+                        <input name="row_key" required placeholder="e.g. 1001" style="padding: 6px 12px;">
+                    </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px; width: 140px;">
+                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Prop Name</span>
+                    <div class="input-icon-group">
+                        <input name="prop_k" placeholder="e.g. Email" style="padding: 6px 12px;">
+                    </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px; flex-grow: 1;">
+                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Prop Value</span>
+                    <div class="input-icon-group">
+                        <input name="prop_v" placeholder="e.g. test@example.com" style="width: 100%; padding: 6px 12px;">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm" style="background-color: var(--success); border-color: var(--success); height: 33px;">
+                    <i class="fa-solid fa-plus"></i> Insert
+                </button>
+            </form>
+        </div>
+
+        <!-- Table Entities Data Grid -->
+        <div class="table-responsive" style="margin-top: 10px;">
+            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 180px;">PartitionKey</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 180px;">RowKey</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Custom Properties</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 120px; text-align: center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if entities %}
+                    {% for e in entities %}
+                    <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
+                        <td style="padding: 12px; font-weight: 600; color: var(--text-white); font-family: var(--font-code);">
+                            {{ e['PartitionKey'] }}
+                        </td>
+                        <td style="padding: 12px; font-weight: 600; color: var(--text-white); font-family: var(--font-code);">
+                            {{ e['RowKey'] }}
+                        </td>
+                        <td style="padding: 12px; color: var(--text-normal); font-size: 13px; line-height: 1.5; white-space: pre-wrap;">
+                            {% for k,v in e.items() if k not in ['PartitionKey','RowKey','etag','Timestamp'] %}
+                                <div style="margin-bottom: 2px;">
+                                    <strong style="color: var(--accent-blue);">{{ k }}</strong>: <span style="color: var(--text-normal);">{{ v }}</span>
+                                </div>
+                            {% endfor %}
+                        </td>
+                        <td style="padding: 12px; text-align: center;">
+                            <form method="POST" action="{{ url_for('ui.delete_entity', table_name=table_name) }}" onsubmit="return confirm('Are you sure you want to delete this entity?');">
+                                <input type="hidden" name="pk" value="{{ e['PartitionKey'] }}">
+                                <input type="hidden" name="rk" value="{{ e['RowKey'] }}">
+                                <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; margin: 0 auto;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="4" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                            No entities found in this table.
+                        </td>
+                    </tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% else %}
+    <!-- Tables List State -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+            <div>
+                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white);">
+                    <i class="fa-solid fa-table" style="color: var(--warning); margin-right: 8px;"></i>
+                    NoSQL Tables
+                </h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Table storage partitions structured NoSQL entities. Create, browse, or delete table targets.</p>
+            </div>
+            <!-- In-line create table form -->
+            <form method="POST" action="{{ url_for('ui.create_table') }}" style="display: flex; align-items: center; gap: 8px;">
+                <div class="input-icon-group">
+                    <i class="fa-solid fa-tag icon-inside" style="font-size: 13px; top: 12px;"></i>
+                    <input type="text" name="name" required placeholder="newTable" style="width: 200px; padding-left: 36px; height: 38px;">
+                </div>
+                <button class="btn btn-primary" style="background-color: var(--warning); border-color: var(--warning); color: #000; height: 38px; padding-top: 0; padding-bottom: 0;">
+                    <i class="fa-solid fa-circle-plus"></i> Create Table
+                </button>
+            </form>
+        </div>
+
+        <!-- Table Listing -->
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Table Name</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if table_names %}
+                    {% for t in table_names %}
+                    <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
+                        <td style="padding: 12px; font-weight: 500; color: var(--text-white);">
+                            <i class="fa-solid fa-table-cells" style="color: var(--warning); margin-right: 8px;"></i>
+                            {{ t }}
+                        </td>
+                        <td style="padding: 12px; text-align: center; display: flex; gap: 8px; justify-content: center;">
+                            <a class="btn btn-neutral btn-sm" href="{{ url_for('ui.view_table', table_name=t) }}" style="padding: 4px 8px; font-size: 11px;">
+                                <i class="fa-solid fa-folder-open"></i> Browse
+                            </a>
+                            <form method="POST" action="{{ url_for('ui.delete_table') }}" onsubmit="return confirm('Are you sure you want to delete NoSQL table \'{{ t }}\' and all its contents? This action is irreversible!');">
+                                <input type="hidden" name="name" value="{{ t }}">
+                                <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="2" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                            No NoSQL Tables found in this storage account.
+                        </td>
+                    </tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

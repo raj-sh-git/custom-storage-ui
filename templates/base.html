@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Storage Admin UI{% endblock %}</title>
+    <!-- Modern Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="{% if not session.get('account_name') %}auth-layout{% else %}dashboard-layout{% endif %}">
+    <script>
+        if (localStorage.getItem("theme") === "light") {
+            document.body.classList.add("light-theme");
+        }
+    </script>
+    
+    {% if session.get('account_name') %}
+    <!-- Sidebar Navigation -->
+    <aside class="app-sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <i class="fa-solid fa-box-archive logo-icon"></i>
+                <span class="logo-text">Storage<span>UI</span></span>
+            </div>
+            <div class="badge badge-premium">v2.0</div>
+        </div>
+
+        <nav class="sidebar-menu">
+            <div class="menu-label">Active Connection</div>
+            <div class="connection-status">
+                <div class="endpoint" title="{{ session.get('account_name') }}">
+                    <i class="fa-solid fa-circle status-dot active"></i>
+                    {{ session.get('account_name') }}
+                </div>
+                <div class="auth-type">
+                    {{ session.get('auth_method', 'Access Key') }}
+                </div>
+            </div>
+
+            <div class="database-tree">
+                <!-- 1. Blob Containers Node -->
+                <div class="db-node {% if active_service == 'blobs' %}expanded{% endif %}">
+                    <div class="db-title" onclick="toggleDbNode(this)">
+                        <i class="fa-solid fa-database db-icon"></i>
+                        <span class="db-name" style="flex-grow: 1;">Blob Containers</span>
+                        <a href="javascript:void(0)" onclick="openCreateModal('container')" title="Create Container" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
+                            <i class="fa-solid fa-circle-plus"></i>
+                        </a>
+                        <i class="fa-solid fa-chevron-right chevron-icon"></i>
+                    </div>
+                    <div class="containers-list">
+                        {% if sidebar_tree and sidebar_tree.get('containers') %}
+                            {% for c in sidebar_tree.get('containers') %}
+                            <a href="{{ url_for('ui.view_blobs', container_name=c) }}" class="container-item {% if active_item == c and active_service == 'blobs' %}active{% endif %}">
+                                <i class="fa-solid fa-folder container-icon"></i>
+                                <span style="flex-grow: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ c }}</span>
+                            </a>
+                            {% endfor %}
+                        {% else %}
+                            <div class="empty-tree">No containers found</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- 2. File Shares Node -->
+                <div class="db-node {% if active_service == 'fileshares' %}expanded{% endif %}">
+                    <div class="db-title" onclick="toggleDbNode(this)">
+                        <i class="fa-solid fa-hard-drive db-icon"></i>
+                        <span class="db-name" style="flex-grow: 1;">File Shares</span>
+                        <a href="javascript:void(0)" onclick="openCreateModal('share')" title="Create File Share" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
+                            <i class="fa-solid fa-circle-plus"></i>
+                        </a>
+                        <i class="fa-solid fa-chevron-right chevron-icon"></i>
+                    </div>
+                    <div class="containers-list">
+                        {% if sidebar_tree and sidebar_tree.get('shares') %}
+                            {% for s in sidebar_tree.get('shares') %}
+                            <a href="{{ url_for('ui.list_files', share=s) }}" class="container-item {% if active_item == s and active_service == 'fileshares' %}active{% endif %}">
+                                <i class="fa-solid fa-server container-icon"></i>
+                                <span style="flex-grow: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ s }}</span>
+                            </a>
+                            {% endfor %}
+                        {% else %}
+                            <div class="empty-tree">No file shares found</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- 3. Queues Node -->
+                <div class="db-node {% if active_service == 'queues' %}expanded{% endif %}">
+                    <div class="db-title" onclick="toggleDbNode(this)">
+                        <i class="fa-solid fa-list-ol db-icon"></i>
+                        <span class="db-name" style="flex-grow: 1;">Queues</span>
+                        <a href="javascript:void(0)" onclick="openCreateModal('queue')" title="Create Queue" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
+                            <i class="fa-solid fa-circle-plus"></i>
+                        </a>
+                        <i class="fa-solid fa-chevron-right chevron-icon"></i>
+                    </div>
+                    <div class="containers-list">
+                        {% if sidebar_tree and sidebar_tree.get('queues') %}
+                            {% for q in sidebar_tree.get('queues') %}
+                            <a href="{{ url_for('ui.view_queue', queue=q) }}" class="container-item {% if active_item == q and active_service == 'queues' %}active{% endif %}">
+                                <i class="fa-solid fa-square-poll-horizontal container-icon"></i>
+                                <span style="flex-grow: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ q }}</span>
+                            </a>
+                            {% endfor %}
+                        {% else %}
+                            <div class="empty-tree">No queues found</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- 4. Tables Node -->
+                <div class="db-node {% if active_service == 'tables' %}expanded{% endif %}">
+                    <div class="db-title" onclick="toggleDbNode(this)">
+                        <i class="fa-solid fa-table db-icon"></i>
+                        <span class="db-name" style="flex-grow: 1;">Tables</span>
+                        <a href="javascript:void(0)" onclick="openCreateModal('table')" title="Create Table" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
+                            <i class="fa-solid fa-circle-plus"></i>
+                        </a>
+                        <i class="fa-solid fa-chevron-right chevron-icon"></i>
+                    </div>
+                    <div class="containers-list">
+                        {% if sidebar_tree and sidebar_tree.get('tables') %}
+                            {% for t in sidebar_tree.get('tables') %}
+                            <a href="{{ url_for('ui.view_table', table_name=t) }}" class="container-item {% if active_item == t and active_service == 'tables' %}active{% endif %}">
+                                <i class="fa-solid fa-table-cells container-icon"></i>
+                                <span style="flex-grow: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ t }}</span>
+                            </a>
+                            {% endfor %}
+                        {% else %}
+                            <div class="empty-tree">No tables found</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <a href="{{ url_for('ui.logout') }}" class="btn-logout">
+                <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                <span>Disconnect</span>
+            </a>
+        </div>
+    </aside>
+    {% endif %}
+
+    <!-- Main Content Area -->
+    <main class="main-wrapper">
+        {% if session.get('account_name') %}
+        <header class="app-header">
+            <div class="breadcrumb">
+                <a href="{{ url_for('ui.home') }}">Home</a>
+                {% if active_service %}
+                    <span class="separator">/</span>
+                    <span class="active-crumb">{{ active_service|capitalize }}</span>
+                {% endif %}
+                {% if active_item %}
+                    <span class="separator">/</span>
+                    <span class="active-crumb container-crumb">{{ active_item }}</span>
+                {% endif %}
+            </div>
+            
+            <div class="user-profile">
+                <button id="themeToggle" class="btn-theme-toggle" onclick="toggleTheme()" title="Toggle Theme">
+                    <i class="fa-solid fa-moon"></i>
+                </button>
+                <div class="avatar">
+                    <i class="fa-regular fa-user"></i>
+                </div>
+                <div class="profile-info">
+                    <span class="username">Developer Mode</span>
+                    <span class="role">Admin Portal</span>
+                </div>
+            </div>
+        </header>
+        {% endif %}
+
+        <section class="content-body">
+            <!-- Toast / Alerts Banner -->
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    <div class="alerts-container">
+                        {% for msg in messages %}
+                            <div class="alert alert-info">
+                                <i class="fa-solid fa-circle-info alert-icon"></i>
+                                <span class="alert-message">{{ msg }}</span>
+                                <button class="alert-close" onclick="this.parentElement.remove()">&times;</button>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </section>
+    </main>
+
+    {% if session.get('account_name') %}
+    <!-- Global Create Resource Modal -->
+    <div class="modal" id="createResourceModal">
+        <div class="modal-dialog modal-md">
+            <form id="createResourceForm" method="POST" class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title-group">
+                        <i class="fa-solid fa-circle-plus title-icon"></i>
+                        <h3 id="createModalTitle">Create Resource</h3>
+                    </div>
+                    <button type="button" class="modal-close" onclick="closeModal('createResourceModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="input-wrapper">
+                        <label id="createModalInputLabel" for="createResourceName">Resource Name</label>
+                        <div class="input-icon-group">
+                            <i class="fa-solid fa-tag icon-inside"></i>
+                            <input type="text" id="createResourceName" name="name" required placeholder="Name">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-neutral" onclick="closeModal('createResourceModal')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fa-solid fa-square-plus"></i>
+                        <span>Create</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Custom Logic Script -->
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+    <script>
+        function toggleDbNode(element) {
+            const parent = element.parentElement;
+            parent.classList.toggle('expanded');
+        }
+    </script>
+</body>
+</html>

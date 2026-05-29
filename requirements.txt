@@ -1,0 +1,28 @@
+# --- Core Web Framework ---
+Flask==3.0.3
+flask-session
+
+# --- WSGI & ASGI middleware (for mounting and local Uvicorn tests) ---
+Werkzeug==3.0.3
+asgiref==3.8.1
+
+# --- Servers ---
+#waitress==3.0.0      # Works on Windows for local testing
+gunicorn==22.0.0     # Used in Docker / AKS (Linux)
+
+# --- Azure SDKs ---
+azure-storage-blob==12.21.0
+azure-storage-queue==12.9.0
+azure-storage-file-share==12.16.0
+azure-data-tables==12.5.0
+azure-identity
+cryptography
+a2wsgi
+uvicorn
+openpyxl
+
+# --- Testing utilities (optional if you're running pytest in CI) ---
+#pytest==8.3.2
+
+# --- Code coverage (optional, if you still run sonar scans) ---
+#coverage==7.6.1

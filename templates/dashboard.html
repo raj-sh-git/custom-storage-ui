@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - StorageUI{% endblock %}
+
+{% block content %}
+<div style="display: flex; flex-direction: column; gap: 24px;">
+
+    <!-- Storage Statistics Grid -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px;">
+        <!-- Containers Card -->
+        <div class="glass-card" style="display: flex; flex-direction: column; gap: 16px; border-radius: 12px; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="width: 48px; height: 48px; border-radius: 10px; background-color: rgba(0, 120, 212, 0.1); border: 1px solid rgba(0, 120, 212, 0.25); display: flex; align-items: center; justify-content: center; color: var(--primary);">
+                    <i class="fa-solid fa-database" style="font-size: 20px;"></i>
+                </div>
+                <span class="badge badge-blue">Blob Service</span>
+            </div>
+            <div>
+                <h4 style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">Blob Containers</h4>
+                <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">Store unstructured data such as text, binary files, images, or documents at scale.</p>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: auto; border-top: 1px solid var(--border-color); padding-top: 12px;">
+                <span style="font-size: 13px;">Count: <strong>{{ sidebar_tree.get('containers')|length }}</strong></span>
+                <a href="{{ url_for('ui.blobs') }}" class="btn btn-neutral btn-sm">Explore <i class="fa-solid fa-arrow-right" style="font-size: 10px; margin-left: 4px;"></i></a>
+            </div>
+        </div>
+
+        <!-- File Shares Card -->
+        <div class="glass-card" style="display: flex; flex-direction: column; gap: 16px; border-radius: 12px; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="width: 48px; height: 48px; border-radius: 10px; background-color: rgba(128, 63, 231, 0.1); border: 1px solid rgba(128, 63, 231, 0.25); display: flex; align-items: center; justify-content: center; color: var(--accent-purple);">
+                    <i class="fa-solid fa-hard-drive" style="font-size: 20px;"></i>
+                </div>
+                <span class="badge badge-premium">SMB & REST</span>
+            </div>
+            <div>
+                <h4 style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">File Shares</h4>
+                <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">Fully managed cloud file shares accessible via industry-standard SMB or REST APIs.</p>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: auto; border-top: 1px solid var(--border-color); padding-top: 12px;">
+                <span style="font-size: 13px;">Count: <strong>{{ sidebar_tree.get('shares')|length }}</strong></span>
+                <a href="{{ url_for('ui.fileshares') }}" class="btn btn-neutral btn-sm">Explore <i class="fa-solid fa-arrow-right" style="font-size: 10px; margin-left: 4px;"></i></a>
+            </div>
+        </div>
+
+        <!-- Queues Card -->
+        <div class="glass-card" style="display: flex; flex-direction: column; gap: 16px; border-radius: 12px; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="width: 48px; height: 48px; border-radius: 10px; background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); display: flex; align-items: center; justify-content: center; color: var(--success);">
+                    <i class="fa-solid fa-list-ol" style="font-size: 20px;"></i>
+                </div>
+                <span class="badge badge-success">Messaging</span>
+            </div>
+            <div>
+                <h4 style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">Message Queues</h4>
+                <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">Reliable messaging for asynchronous task coordination and high-throughput workloads.</p>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: auto; border-top: 1px solid var(--border-color); padding-top: 12px;">
+                <span style="font-size: 13px;">Count: <strong>{{ sidebar_tree.get('queues')|length }}</strong></span>
+                <a href="{{ url_for('ui.queues') }}" class="btn btn-neutral btn-sm">Explore <i class="fa-solid fa-arrow-right" style="font-size: 10px; margin-left: 4px;"></i></a>
+            </div>
+        </div>
+
+        <!-- Tables Card -->
+        <div class="glass-card" style="display: flex; flex-direction: column; gap: 16px; border-radius: 12px; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="width: 48px; height: 48px; border-radius: 10px; background-color: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); display: flex; align-items: center; justify-content: center; color: var(--warning);">
+                    <i class="fa-solid fa-table" style="font-size: 20px;"></i>
+                </div>
+                <span class="badge badge-neutral">NoSQL</span>
+            </div>
+            <div>
+                <h4 style="font-size: 16px; font-weight: 600; margin-bottom: 4px;">NoSQL Tables</h4>
+                <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">Schema-less structured key-value data storage ideal for rapid development and high scalability.</p>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: auto; border-top: 1px solid var(--border-color); padding-top: 12px;">
+                <span style="font-size: 13px;">Count: <strong>{{ sidebar_tree.get('tables')|length }}</strong></span>
+                <a href="{{ url_for('ui.tables') }}" class="btn btn-neutral btn-sm">Explore <i class="fa-solid fa-arrow-right" style="font-size: 10px; margin-left: 4px;"></i></a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Actions & Details Grid -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px;">
+        <!-- Bulk Creation Card -->
+        <div class="glass-card" style="border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+            <div>
+                <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-cubes-stacked" style="color: var(--accent-purple);"></i>
+                    Bulk Resource Creator
+                </h3>
+                <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
+                    Provision multiple resources at once. Upload a CSV or Excel (.xlsx) file with resource names in the first column.
+                </p>
+            </div>
+            
+            <form method="POST" action="{{ url_for('ui.bulk_create') }}" enctype="multipart/form-data" style="display: flex; flex-direction: column; gap: 16px;">
+                <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                    <div class="input-wrapper" style="flex: 1; min-width: 180px;">
+                        <label for="resource_type">Resource Type</label>
+                        <div class="input-icon-group" style="margin-top: 6px;">
+                            <i class="fa-solid fa-list-check icon-inside" style="font-size: 13px;"></i>
+                            <select name="resource_type" id="resource_type" class="db-select" style="width: 100%; padding-left: 36px; height: 38px; border-radius: 6px; background-color: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-color); color: var(--text-white);" required>
+                                <option value="container">Blob Container</option>
+                                <option value="share">File Share</option>
+                                <option value="queue">Message Queue</option>
+                                <option value="table">NoSQL Table</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="input-wrapper" style="flex: 1; min-width: 180px;">
+                        <label>Upload CSV / Excel File</label>
+                        <label class="btn btn-neutral" style="margin-top: 6px; width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; border: 1px solid var(--border-color);">
+                            <i class="fa-solid fa-file-excel"></i> Choose File
+                            <input type="file" name="file" accept=".csv,.xlsx" style="display: none;" onchange="updateFilesNameDisplay(this, 'bulkUploadNamePreview')" required>
+                        </label>
+                    </div>
+                </div>
+                
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span id="bulkUploadNamePreview" style="font-size: 12px; color: var(--text-muted); font-weight: 500;">No file chosen</span>
+                    <button type="submit" class="btn btn-primary" style="height: 38px; display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-bolt"></i> Run Bulk Creation
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Active Endpoint Details -->
+        <div class="glass-card" style="border-radius: 12px; padding: 24px; display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+                <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">Active Storage Connection</h3>
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    <div class="glass-card" style="padding: 10px 14px; border-radius: 8px; box-shadow: none; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 12px; color: var(--text-muted);">Account Name</span>
+                        <span style="font-size: 13.5px; font-weight: 600; color: var(--text-white);">{{ session.get('account_name') }}</span>
+                    </div>
+                    <div class="glass-card" style="padding: 10px 14px; border-radius: 8px; box-shadow: none; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 12px; color: var(--text-muted);">Auth Protocol</span>
+                        <span style="font-size: 13.5px; font-weight: 600; color: var(--text-white);">{{ session.get('auth_method', 'Access Key') }}</span>
+                    </div>
+                    <div class="glass-card" style="padding: 10px 14px; border-radius: 8px; box-shadow: none; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 12px; color: var(--text-muted);">Connection Status</span>
+                        <span style="font-size: 13.5px; color: #10b981; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-circle-check"></i> Connected
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

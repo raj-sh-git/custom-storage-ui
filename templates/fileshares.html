@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}
+  {% if share %}Files in: {{ share }} - StorageUI{% else %}File Shares - StorageUI{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="glass-card" style="border-radius: 12px; padding: 24px;">
+    
+    {% if share %}
+    <!-- File Share Browser State -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+            <div>
+                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-server" style="color: var(--accent-purple);"></i>
+                    Share: {{ share }}
+                </h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Upload multiple files, download data, or manage files in the root folder of this share.</p>
+            </div>
+            <a href="{{ url_for('ui.fileshares') }}" class="btn btn-neutral btn-sm">
+                <i class="fa-solid fa-arrow-left"></i> Back to Shares
+            </a>
+        </div>
+
+        <!-- Toolbar (Multi-file Upload) -->
+        <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; align-items: center; gap: 16px;">
+            <!-- Multi-file Upload Form -->
+            <form method="POST" action="{{ url_for('ui.upload_file', share=share) }}" enctype="multipart/form-data" style="display: flex; align-items: center; gap: 10px; flex-grow: 1;">
+                <label class="btn btn-neutral btn-sm" style="margin-bottom: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-file-circle-plus"></i> Choose Files
+                    <input type="file" name="files" multiple style="display: none;" onchange="updateFilesNameDisplay(this, 'shareUploadNamePreview')">
+                </label>
+                <span id="shareUploadNamePreview" style="font-size: 12px; color: var(--text-muted); font-weight: 500;">No files chosen</span>
+                <button type="submit" class="btn btn-primary btn-sm" style="background-color: var(--accent-purple);">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> Upload Files
+                </button>
+            </form>
+        </div>
+
+        <!-- Share Items Data Table -->
+        <div class="table-responsive" style="margin-top: 10px;">
+            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Name</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px;">Type</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if items %}
+                    {% for i in items %}
+                    <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
+                        <td style="padding: 12px; color: var(--text-normal); word-break: break-all;">
+                            {% if i.is_directory %}
+                                <i class="fa-solid fa-folder" style="color: var(--warning); margin-right: 6px;"></i> <strong>{{ i.name }}</strong>
+                            {% else %}
+                                <i class="fa-solid fa-file" style="color: var(--text-muted); margin-right: 6px;"></i> {{ i.name }}
+                            {% endif %}
+                        </td>
+                        <td style="padding: 12px; color: var(--text-muted);">
+                            {{ 'Directory' if i.is_directory else 'File' }}
+                        </td>
+                        <td style="padding: 12px; text-align: center; display: flex; gap: 8px; justify-content: center;">
+                            {% if not i.is_directory %}
+                            <a class="btn btn-neutral btn-sm" href="{{ url_for('ui.download_file', share=share, filename=i.name) }}" style="padding: 4px 8px; font-size: 11px;">
+                                <i class="fa-solid fa-download"></i> Download
+                            </a>
+                            <form method="POST" action="{{ url_for('ui.delete_file', share=share) }}" onsubmit="return confirm('Are you sure you want to delete file \'{{ i.name }}\'?');">
+                                <input type="hidden" name="name" value="{{ i.name }}">
+                                <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete
+                                </button>
+                            </form>
+                            {% else %}
+                                --
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="3" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                            This share is currently empty.
+                        </td>
+                    </tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% else %}
+    <!-- File Shares List State -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+            <div>
+                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white);">
+                    <i class="fa-solid fa-hard-drive" style="color: var(--accent-purple); margin-right: 8px;"></i>
+                    File Shares
+                </h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Fully managed cloud file shares using SMB. Create, inspect, or delete shares.</p>
+            </div>
+            <!-- In-line create share form -->
+            <form method="POST" action="{{ url_for('ui.create_share') }}" style="display: flex; align-items: center; gap: 8px;">
+                <div class="input-icon-group">
+                    <i class="fa-solid fa-tag icon-inside" style="font-size: 13px; top: 12px;"></i>
+                    <input type="text" name="name" required placeholder="new-share-name" style="width: 200px; padding-left: 36px; height: 38px;">
+                </div>
+                <button class="btn btn-primary" style="background-color: var(--accent-purple); border-color: var(--accent-purple); height: 38px; padding-top: 0; padding-bottom: 0;">
+                    <i class="fa-solid fa-circle-plus"></i> Create Share
+                </button>
+            </form>
+        </div>
+
+        <!-- Table Listing -->
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Share Name</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if shares %}
+                    {% for s in shares %}
+                    <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
+                        <td style="padding: 12px; font-weight: 500; color: var(--text-white);">
+                            <i class="fa-solid fa-server" style="color: var(--accent-purple); margin-right: 8px;"></i>
+                            {{ s.name }}
+                        </td>
+                        <td style="padding: 12px; text-align: center; display: flex; gap: 8px; justify-content: center;">
+                            <a class="btn btn-neutral btn-sm" href="{{ url_for('ui.list_files', share=s.name) }}" style="padding: 4px 8px; font-size: 11px;">
+                                <i class="fa-solid fa-folder-open"></i> Browse
+                            </a>
+                            <form method="POST" action="{{ url_for('ui.delete_share') }}" onsubmit="return confirm('Are you sure you want to delete file share \'{{ s.name }}\' and all its contents? This action is irreversible!');">
+                                <input type="hidden" name="name" value="{{ s.name }}">
+                                <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="2" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                            No File Shares found in this storage account.
+                        </td>
+                    </tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

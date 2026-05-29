@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block title %}
+  {% if queue %}Queue: {{ queue }} - StorageUI{% else %}Queues - StorageUI{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="glass-card" style="border-radius: 12px; padding: 24px;">
+    
+    {% if queue %}
+    <!-- Queue Message Browser State -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+            <div>
+                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-list-ol" style="color: var(--success);"></i>
+                    Queue: {{ queue }}
+                </h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Inspect active messages in the queue (Peek), enqueue new messages, or pull them off (Dequeue).</p>
+            </div>
+            <a href="{{ url_for('ui.queues') }}" class="btn btn-neutral btn-sm">
+                <i class="fa-solid fa-arrow-left"></i> Back to Queues
+            </a>
+        </div>
+
+        <!-- Toolbar (Enqueue Message & Dequeue Actions) -->
+        <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;">
+            <!-- Enqueue Form -->
+            <form method="POST" action="{{ url_for('ui.enqueue', queue=queue) }}" style="display: flex; align-items: center; gap: 10px; flex-grow: 1;">
+                <div class="input-icon-group" style="flex-grow: 1; max-width: 400px;">
+                    <i class="fa-solid fa-envelope icon-inside" style="font-size: 13px;"></i>
+                    <input name="msg" required placeholder="Message body text..." style="padding-left: 36px; width: 100%;">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm" style="background-color: var(--success); border-color: var(--success);">
+                    <i class="fa-solid fa-plus"></i> Enqueue Message
+                </button>
+            </form>
+
+            <!-- Dequeue Actions -->
+            <div style="display: flex; gap: 8px;">
+                <form method="POST" action="{{ url_for('ui.dequeue', queue=queue) }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to Dequeue and permanently delete the front message?');">
+                    <button class="btn btn-neutral btn-sm" style="color: #fca5a5;">
+                        <i class="fa-solid fa-minus"></i> Dequeue One
+                    </button>
+                </form>
+                <form method="POST" action="{{ url_for('ui.dequeue_all', queue=queue) }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to Dequeue and permanently delete ALL messages in the queue?');">
+                    <button class="btn btn-danger btn-sm">
+                        <i class="fa-solid fa-trash-can"></i> Dequeue All
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Active Peeks List Table -->
+        <div class="table-responsive" style="margin-top: 10px;">
+            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 250px;">Message ID</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Content Preview (base64 decoded by default)</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px; text-align: center;">Insertion Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if messages %}
+                    {% for m in messages %}
+                    <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
+                        <td style="padding: 12px; font-family: var(--font-code); color: var(--text-muted); word-break: break-all;">
+                            {{ m.id }}
+                        </td>
+                        <td style="padding: 12px; color: var(--text-normal); word-break: break-all; vertical-align: middle;">
+                            <div id="msg-{{ loop.index }}" style="max-height: 4.5em; overflow: hidden; font-family: var(--font-code); font-size: 13px;">
+                                <code>{{ m.preview }}</code>
+                            </div>
+
+                            {% if m.content|length > 100 %}
+                                <button class="btn btn-link btn-sm p-0 mt-1"
+                                        style="text-decoration:none; color: var(--primary); font-size: 12px; border: none; background: transparent; cursor: pointer; padding: 0; margin-top: 6px;"
+                                        type="button"
+                                        onclick='toggleFull({{ loop.index }}, {{ m.encoded_json|safe }})'>
+                                        Show full ▼
+                                </button>
+                                <pre id="full-{{ loop.index }}" class="border rounded bg-dark p-2 mt-2 small"
+                                     style="display:none; white-space:pre-wrap; word-break:break-word; font-family:var(--font-code); border: 1px solid var(--border-color); padding: 10px; background-color: rgba(0,0,0,0.03); border-radius: 6px;"></pre>
+                            {% endif %}
+                        </td>
+                        <td style="padding: 12px; color: var(--text-muted); font-size: 12px; text-align: center;">
+                            {{ m.insertion_time.strftime('%Y-%m-%d %H:%M:%S') if m.insertion_time else '--' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="3" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                            No messages currently visible in this queue. (Messages might be invisible due to active processing/visibility timeout).
+                        </td>
+                    </tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+    function toggleFull(i, encoded) {
+      const el = document.getElementById('full-' + i);
+      const btn = event.target;
+      if (el.style.display === 'none') {
+        try {
+          const decoded = atob(encoded);
+          el.textContent = decoded;
+        } catch (err) {
+          el.textContent = "(Invalid Base64 or already plain text)\n" + encoded;
+        }
+        el.style.display = 'block';
+        btn.innerText = "Hide ▲";
+      } else {
+        el.style.display = 'none';
+        btn.innerText = "Show full ▼";
+      }
+    }
+    </script>
+
+    {% else %}
+    <!-- Queues List State -->
+    <div style="display: flex; flex-direction: column; gap: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+            <div>
+                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white);">
+                    <i class="fa-solid fa-list-ol" style="color: var(--success); margin-right: 8px;"></i>
+                    Message Queues
+                </h3>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Queue services partition message backlogs. Create, browse, or delete queue nodes.</p>
+            </div>
+            <!-- In-line create queue form -->
+            <form method="POST" action="{{ url_for('ui.create_queue') }}" style="display: flex; align-items: center; gap: 8px;">
+                <div class="input-icon-group">
+                    <i class="fa-solid fa-tag icon-inside" style="font-size: 13px; top: 12px;"></i>
+                    <input type="text" name="name" required placeholder="new-queue-name" style="width: 200px; padding-left: 36px; height: 38px;">
+                </div>
+                <button class="btn btn-primary" style="background-color: var(--success); border-color: var(--success); height: 38px; padding-top: 0; padding-bottom: 0;">
+                    <i class="fa-solid fa-circle-plus"></i> Create Queue
+                </button>
+            </form>
+        </div>
+
+        <!-- Table Listing -->
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Queue Name</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% if queues %}
+                    {% for q in queues %}
+                    <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
+                        <td style="padding: 12px; font-weight: 500; color: var(--text-white);">
+                            <i class="fa-solid fa-square-poll-horizontal" style="color: var(--success); margin-right: 8px;"></i>
+                            {{ q.name }}
+                        </td>
+                        <td style="padding: 12px; text-align: center; display: flex; gap: 8px; justify-content: center;">
+                            <a class="btn btn-neutral btn-sm" href="{{ url_for('ui.view_queue', queue=q.name) }}" style="padding: 4px 8px; font-size: 11px;">
+                                <i class="fa-solid fa-folder-open"></i> Browse
+                            </a>
+                            <form method="POST" action="{{ url_for('ui.delete_queue') }}" onsubmit="return confirm('Are you sure you want to delete message queue \'{{ q.name }}\' and all its contents? This will permanently delete all un-processed messages!');">
+                                <input type="hidden" name="name" value="{{ q.name }}">
+                                <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                                    <i class="fa-solid fa-trash-can"></i> Delete
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="2" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                            No Message Queues found in this storage account.
+                        </td>
+                    </tr>
+                {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
