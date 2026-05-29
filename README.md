@@ -1,5 +1,8 @@
 # Azure Storage UI Manager
 
+<img width="2880" height="1622" alt="image" src="https://github.com/user-attachments/assets/f068c15f-f548-455c-a697-98dbd15b125f" />
+
+
 A lightweight, modern, and high-performance web interface for managing Azure Storage Accounts. This tool provides a unified, beautiful glassmorphic explorer to inspect and execute CRUD operations on **Blob Containers**, **File Shares**, **Message Queues**, and **NoSQL Tables**, featuring a robust **Bulk Creator Studio** via CSV/Excel uploads.
 
 ## Use Cases
