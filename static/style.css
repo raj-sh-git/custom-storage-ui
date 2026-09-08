@@ -154,7 +154,8 @@ body.dashboard-layout {
     height: 100vh;
     position: sticky;
     top: 0;
-    overflow-y: auto;
+    overflow: visible;
+    z-index: 1000;
 }
 
 .sidebar-header {
@@ -163,6 +164,9 @@ body.dashboard-layout {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    position: relative;
+    overflow: visible;
+    z-index: 1001;
 }
 
 .logo {
@@ -192,6 +196,7 @@ body.dashboard-layout {
 .sidebar-menu {
     flex-grow: 1;
     padding: 20px 12px;
+    overflow-y: auto;
 }
 
 .menu-label {
@@ -556,6 +561,8 @@ body.dashboard-layout {
     border-radius: 12px;
     font-size: 11px;
     font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .badge-premium {
@@ -581,6 +588,24 @@ body.dashboard-layout {
     background-color: var(--success-bg);
     border: 1px solid var(--success-border);
     color: #34d399;
+}
+
+body.light-theme .badge-success {
+    color: #059669;
+    border-color: rgba(16, 185, 129, 0.35);
+    background-color: rgba(16, 185, 129, 0.12);
+}
+
+body.light-theme .badge-blue {
+    color: #1d4ed8;
+    border-color: rgba(37, 99, 235, 0.35);
+    background-color: rgba(37, 99, 235, 0.12);
+}
+
+body.light-theme .badge-warning {
+    color: #b45309;
+    border-color: rgba(245, 158, 11, 0.35);
+    background-color: rgba(245, 158, 11, 0.12);
 }
 
 /* ==========================================================================
@@ -1317,8 +1342,11 @@ body.dashboard-layout {
     overflow: hidden;
 }
 
+.table-responsive,
 .table-wrapper {
+    width: 100%;
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .documents-table {
@@ -1553,15 +1581,21 @@ body.dashboard-layout {
     position: fixed;
     top: 0;
     left: 0;
+    right: 0;
+    bottom: 0;
     width: 100vw;
     height: 100vh;
-    background-color: rgba(5, 7, 10, 0.7);
-    backdrop-filter: blur(8px);
+    background-color: rgba(5, 7, 10, 0.75);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     display: none;
     align-items: center;
     justify-content: center;
-    z-index: 200;
-    padding: 20px;
+    z-index: 100000;
+    padding: 24px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .modal.active {
@@ -1571,11 +1605,12 @@ body.dashboard-layout {
 .modal-dialog {
     width: 100%;
     max-width: 550px;
+    margin: auto;
     animation: modalSlide 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .modal-dialog.modal-lg {
-    max-width: 900px;
+    max-width: 960px;
 }
 
 .modal-dialog.modal-sm {
@@ -2201,3 +2236,481 @@ body.light-theme .upload-zone:hover {
     opacity: 1 !important;
     transform: scale(1.1);
 }
+
+/* ==========================================================================
+   Version Badge & Changelog Popover
+   ========================================================================== */
+.version-badge-container {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.version-badge {
+    cursor: pointer;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    outline: none;
+    user-select: none;
+}
+
+.version-badge:hover,
+.version-badge:focus {
+    transform: translateY(-1px) scale(1.05);
+    box-shadow: 0 0 14px var(--accent-purple-glow);
+}
+
+.version-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: auto;
+    width: 330px;
+    padding: 14px;
+    background: rgba(15, 23, 42, 0.98);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.1);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(6px);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+    z-index: 1000000;
+    text-align: left;
+}
+
+.sidebar-header .version-popover {
+    left: 0;
+    right: auto;
+    top: calc(100% + 10px);
+    z-index: 1000000;
+}
+
+.auth-header .version-popover,
+.auth-logo .version-popover {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%) translateY(6px);
+    z-index: 1000000;
+}
+
+.version-badge-container:hover .version-popover,
+.version-badge-container:focus-within .version-popover {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+.auth-header .version-badge-container:hover .version-popover,
+.auth-header .version-badge-container:focus-within .version-popover,
+.auth-logo .version-badge-container:hover .version-popover,
+.auth-logo .version-badge-container:focus-within .version-popover {
+    transform: translateX(-50%) translateY(0);
+}
+
+body.light-theme .version-popover {
+    background: rgba(255, 255, 255, 0.98);
+    border-color: rgba(0, 0, 0, 0.12);
+    box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+/* ==========================================================================
+   Segmented Pill Toggle Buttons (Decoded vs Raw Base64)
+   ========================================================================== */
+.btn-group-pill {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    padding: 2px;
+    gap: 2px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+body.light-theme .btn-group-pill {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: rgba(0, 0, 0, 0.12);
+}
+
+.btn-pill {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 9px;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.btn-pill:hover {
+    color: var(--text-white);
+}
+
+body.light-theme .btn-pill:hover {
+    color: var(--text-dark);
+}
+
+.btn-pill.active {
+    background: var(--primary);
+    color: #ffffff;
+    font-weight: 600;
+    box-shadow: 0 1px 4px rgba(0, 120, 212, 0.4);
+}
+
+/* Responsive Table Layout & Preview Box for Queue Messages */
+.queue-table {
+    width: 100%;
+    min-width: 960px;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.queue-msg-preview-box {
+    min-height: 42px;
+    max-height: 4.5em;
+    overflow: hidden;
+    font-family: var(--font-code);
+    font-size: 12px;
+    line-height: 1.45;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    box-sizing: border-box;
+    display: flex;
+    align-items: flex-start;
+}
+
+.queue-msg-preview-box code {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent !important;
+    border: none !important;
+    color: #f1f5f9;
+    font-family: var(--font-code);
+    font-size: 12px;
+    line-height: 1.45;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+body.light-theme .queue-msg-preview-box {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.12);
+}
+
+body.light-theme .queue-msg-preview-box code {
+    color: #0f172a;
+}
+
+.version-popover-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.version-title-wrap {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.version-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-white);
+}
+
+body.light-theme .version-title {
+    color: #0f172a;
+}
+
+.version-date {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.version-changelog-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.version-changelog-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-normal);
+}
+
+.version-changelog-list li i {
+    font-size: 11px;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Bulk Actions Toolbar & Table Checkboxes
+   ========================================================================== */
+.bulk-actions-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    background: rgba(0, 120, 212, 0.12);
+    border: 1px solid rgba(0, 120, 212, 0.35);
+    border-radius: 8px;
+    animation: fadeIn 0.2s ease-in-out;
+}
+
+.table-checkbox {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+    cursor: pointer;
+    border-radius: 4px;
+    vertical-align: middle;
+}
+
+/* ==========================================================================
+   Upload Progress Bar
+   ========================================================================== */
+.upload-progress-container {
+    background: rgba(13, 19, 31, 0.7);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+    animation: fadeIn 0.25s ease-out;
+}
+
+body.light-theme .upload-progress-container {
+    background: rgba(255, 255, 255, 0.85);
+}
+
+.upload-progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.progress-bar-track {
+    width: 100%;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+body.light-theme .progress-bar-track {
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary) 0%, var(--accent-blue) 100%);
+    border-radius: 4px;
+    transition: width 0.15s ease-in-out;
+}
+
+/* ==========================================================================
+   Code & Text Editor in Modal
+   ========================================================================== */
+.code-editor-textarea {
+    width: 100%;
+    min-height: 380px;
+    height: 480px;
+    max-height: 70vh;
+    background: #080b11;
+    color: #e2e8f0;
+    font-family: var(--font-code);
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    resize: vertical;
+    outline: none;
+    tab-size: 4;
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+}
+
+body.light-theme .code-editor-textarea {
+    background: #f8fafc;
+    color: #0f172a;
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
+.code-editor-textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+/* ==========================================================================
+   Search Input Styles
+   ========================================================================== */
+.search-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-input-wrapper i.search-icon {
+    position: absolute;
+    left: 12px;
+    color: var(--text-muted);
+    font-size: 13px;
+    pointer-events: none;
+}
+
+.search-input-wrapper input {
+    padding-left: 36px !important;
+    padding-right: 32px !important;
+    height: 38px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    color: var(--text-white);
+    font-size: 13px;
+    width: 100%;
+    transition: var(--transition-fast);
+}
+
+.search-input-wrapper input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.btn-clear-search {
+    position: absolute;
+    right: 10px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px;
+}
+
+.btn-clear-search:hover {
+    color: var(--text-white);
+}
+
+/* ==========================================================================
+   Queue Message Manager & Encoding Selectors
+   ========================================================================== */
+.option-cards-group {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+
+.option-card {
+    flex: 1;
+    min-width: 220px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.option-card:hover {
+    border-color: var(--border-hover);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.option-card.selected,
+.option-card input[type="radio"]:checked + .option-card-content,
+.option-card:has(input[type="radio"]:checked) {
+    border-color: var(--primary);
+    background: rgba(0, 120, 212, 0.12);
+    box-shadow: 0 0 12px rgba(0, 120, 212, 0.2);
+}
+
+body.light-theme .option-card {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.12);
+}
+
+body.light-theme .option-card:has(input[type="radio"]:checked) {
+    background: rgba(0, 120, 212, 0.08);
+    border-color: var(--primary);
+}
+
+.option-card input[type="radio"] {
+    margin-top: 3px;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.option-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.option-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-white);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.option-card-desc {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.badge-warning {
+    background-color: var(--warning-bg);
+    border: 1px solid var(--warning-border);
+    color: #fbbf24;
+}
+
+.badge-purple {
+    background-color: rgba(128, 63, 231, 0.15);
+    border: 1px solid rgba(128, 63, 231, 0.3);
+    color: #c084fc;
+}
+

@@ -11,121 +11,194 @@
     <!-- Queue Message Browser State -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
         <!-- Header -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; flex-wrap: wrap; gap: 12px;">
             <div>
                 <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
                     <i class="fa-solid fa-list-ol" style="color: var(--success);"></i>
                     Queue: {{ queue }}
                 </h3>
-                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Inspect active messages in the queue (Peek), enqueue new messages, or pull them off (Dequeue).</p>
+                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                    Inspect visible messages (Peek), select & dequeue, edit payloads, or transfer messages across queues. Visible: <strong>{{ messages|length }}</strong>
+                </p>
             </div>
-            <a href="{{ url_for('ui.queues') }}" class="btn btn-neutral btn-sm">
-                <i class="fa-solid fa-arrow-left"></i> Back to Queues
-            </a>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <!-- Enqueue Message Action -->
+                <button type="button" class="btn btn-primary btn-sm" onclick="openEnqueueModal('{{ queue }}')" style="background-color: var(--success); border-color: var(--success); display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-circle-plus"></i> Enqueue Message
+                </button>
+                <!-- Dequeue All Action -->
+                <button type="button" class="btn btn-neutral btn-sm" onclick="openDequeueAllModal('{{ queue }}')" title="Dequeue and permanently purge all messages in this queue" style="border-color: rgba(239, 68, 68, 0.4); color: #f87171; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-broom"></i> Dequeue All
+                </button>
+                <!-- Delete Queue Action -->
+                <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteQueueModal('{{ queue }}')" style="display: flex; align-items: center; gap: 6px;" title="Delete this queue node">
+                    <i class="fa-solid fa-trash-can"></i> Delete Queue
+                </button>
+                <!-- Back Link -->
+                <a href="{{ url_for('ui.queues') }}" class="btn btn-neutral btn-sm">
+                    <i class="fa-solid fa-arrow-left"></i> Back to Queues
+                </a>
+            </div>
         </div>
 
-        <!-- Toolbar (Enqueue Message & Dequeue Actions) -->
-        <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;">
-            <!-- Enqueue Form -->
-            <form method="POST" action="{{ url_for('ui.enqueue', queue=queue) }}" style="display: flex; align-items: center; gap: 10px; flex-grow: 1;">
-                <div class="input-icon-group" style="flex-grow: 1; max-width: 400px;">
-                    <i class="fa-solid fa-envelope icon-inside" style="font-size: 13px;"></i>
-                    <input name="msg" required placeholder="Message body text..." style="padding-left: 36px; width: 100%;">
+        <!-- Search Bar & Dynamic Bulk Actions Zone -->
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+            <!-- Instant Search Input -->
+            <div style="flex: 1; min-width: 260px; max-width: 450px;">
+                <div class="search-input-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" id="queueSearchInput" 
+                           placeholder="Search messages by ID or text content..." 
+                           oninput="filterQueueMessagesTable(this.value)">
+                    <button type="button" id="btnClearQueueSearch" class="btn-clear-search" 
+                            style="display: none;" 
+                            onclick="clearQueueSearch()" title="Clear search">
+                        <i class="fa-solid fa-circle-xmark"></i>
+                    </button>
                 </div>
-                <button type="submit" class="btn btn-primary btn-sm" style="background-color: var(--success); border-color: var(--success);">
-                    <i class="fa-solid fa-plus"></i> Enqueue Message
-                </button>
-            </form>
+            </div>
 
-            <!-- Dequeue Actions -->
-            <div style="display: flex; gap: 8px;">
-                <form method="POST" action="{{ url_for('ui.dequeue', queue=queue) }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to Dequeue and permanently delete the front message?');">
-                    <button class="btn btn-neutral btn-sm" style="color: #fca5a5;">
-                        <i class="fa-solid fa-minus"></i> Dequeue One
-                    </button>
-                </form>
-                <form method="POST" action="{{ url_for('ui.dequeue_all', queue=queue) }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to Dequeue and permanently delete ALL messages in the queue?');">
-                    <button class="btn btn-danger btn-sm">
-                        <i class="fa-solid fa-trash-can"></i> Dequeue All
-                    </button>
-                </form>
+            <!-- Dynamic Bulk Actions Toolbar -->
+            <div id="queueBulkActionsToolbar" class="bulk-actions-toolbar" style="display: none; align-items: center; gap: 8px;">
+                <span class="badge badge-blue font-mono" id="selectedQueueCountBadge">0 selected</span>
+                <!-- Send / Move Selected to Another Queue -->
+                <button type="button" class="btn btn-neutral btn-sm" onclick="openSendToQueueModal('{{ queue }}')" style="display: flex; align-items: center; gap: 6px;" title="Send or move selected messages to another queue">
+                    <i class="fa-solid fa-paper-plane" style="color: var(--accent-blue);"></i>
+                    <span>Send / Move</span>
+                </button>
+                <!-- Dequeue Selected (Modal confirmation) -->
+                <button type="button" class="btn btn-danger btn-sm" onclick="openBulkDequeueModal('{{ queue }}')" style="display: flex; align-items: center; gap: 6px;" title="Dequeue and delete selected messages">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span>Dequeue Selected</span>
+                </button>
+                <!-- Deselect All -->
+                <button type="button" class="btn btn-neutral btn-sm" onclick="deselectAllQueueMsgs()" title="Deselect all">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
         </div>
 
         <!-- Active Peeks List Table -->
-        <div class="table-responsive" style="margin-top: 10px;">
-            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+        <div class="table-responsive" style="margin-top: 6px;">
+            <table class="table table-bordered table-sm align-middle small queue-table">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 250px;">Message ID</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Content Preview (base64 decoded by default)</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px; text-align: center;">Insertion Time</th>
+                        <th style="padding: 12px; width: 40px; text-align: center;">
+                            <input type="checkbox" id="selectAllQueueMsgs" class="table-checkbox" onchange="toggleSelectAllQueueMsgs(this)" title="Select all messages">
+                        </th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 190px; min-width: 170px;">Message ID</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; min-width: 280px;">Message Content & Format</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px; min-width: 130px; text-align: center;">Insertion Time</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 95px; min-width: 85px; text-align: center;">Dequeue Count</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px; min-width: 130px; text-align: center;">Expiration Time</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 130px; min-width: 120px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="queueMessagesTableBody">
                 {% if messages %}
                     {% for m in messages %}
-                    <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
-                        <td style="padding: 12px; font-family: var(--font-code); color: var(--text-muted); word-break: break-all;">
-                            {{ m.id }}
+                    <tr class="queue-msg-row" data-msg-id="{{ m.id }}" style="border-bottom: 1px solid var(--border-color);">
+                        <!-- Checkbox -->
+                        <td style="padding: 12px; text-align: center;">
+                            <input type="checkbox" class="queue-msg-checkbox table-checkbox" data-id="{{ m.id }}" onchange="updateQueueMsgSelection()">
                         </td>
+                        <!-- Message ID -->
+                        <td style="padding: 12px; font-family: var(--font-code); color: var(--text-muted); font-size: 12px; word-break: break-all;">
+                            <i class="fa-solid fa-envelope" style="color: var(--accent-blue); margin-right: 6px;"></i>{{ m.id }}
+                        </td>
+                        <!-- Content Preview & Encoding Pill Switcher -->
                         <td style="padding: 12px; color: var(--text-normal); word-break: break-all; vertical-align: middle;">
-                            <div id="msg-{{ loop.index }}" style="max-height: 4.5em; overflow: hidden; font-family: var(--font-code); font-size: 13px;">
-                                <code>{{ m.preview }}</code>
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+                                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                    {% if m.is_base64 %}
+                                        <!-- Segmented Pill Switcher (Default: Raw Payload) -->
+                                        <div class="btn-group-pill" id="queue-pill-group-{{ loop.index }}" style="white-space: nowrap; flex-shrink: 0;">
+                                            <button type="button" class="btn-pill active" id="btn-raw-{{ loop.index }}" 
+                                                    onclick="setQueueMsgViewMode({{ loop.index }}, 'raw')"
+                                                    title="Show raw Base64 payload as stored in queue">
+                                                <i class="fa-solid fa-code"></i> Raw Payload
+                                            </button>
+                                            <button type="button" class="btn-pill" id="btn-decoded-{{ loop.index }}" 
+                                                    onclick="setQueueMsgViewMode({{ loop.index }}, 'decoded')"
+                                                    title="Show decoded plain text / JSON payload">
+                                                <i class="fa-solid fa-eye"></i> Show Plain Text
+                                            </button>
+                                        </div>
+                                        <script id="queue-msg-data-{{ loop.index }}" type="application/json">{"decoded": {{ m.decoded_content|tojson|safe }}, "raw": {{ m.raw_content|tojson|safe }}}</script>
+                                    {% else %}
+                                        <span class="badge badge-neutral font-mono" style="white-space: nowrap; flex-shrink: 0;" title="Plain Text / Raw UTF-8">
+                                            <i class="fa-solid fa-font" style="margin-right: 4px;"></i>Plain Text
+                                        </span>
+                                    {% endif %}
+                                </div>
                             </div>
-
-                            {% if m.content|length > 100 %}
-                                <button class="btn btn-link btn-sm p-0 mt-1"
-                                        style="text-decoration:none; color: var(--primary); font-size: 12px; border: none; background: transparent; cursor: pointer; padding: 0; margin-top: 6px;"
-                                        type="button"
-                                        onclick='toggleFull({{ loop.index }}, {{ m.encoded_json|safe }})'>
-                                        Show full ▼
+                            <div class="queue-msg-preview-box"><code id="queue-preview-{{ loop.index }}">{{ m.raw_preview|trim }}</code></div>
+                            {% if (m.decoded_content|length > 120) or (m.raw_content|length > 120) %}
+                                <button type="button" id="queue-expand-{{ loop.index }}" class="btn btn-link btn-sm p-0"
+                                        style="text-decoration:none; color: var(--accent-blue); font-size: 11px; border: none; background: transparent; cursor: pointer; margin-top: 4px; display: inline-block;"
+                                        onclick="toggleQueueMsgExpand({{ loop.index }})">
+                                    Show Full ▼
                                 </button>
-                                <pre id="full-{{ loop.index }}" class="border rounded bg-dark p-2 mt-2 small"
-                                     style="display:none; white-space:pre-wrap; word-break:break-word; font-family:var(--font-code); border: 1px solid var(--border-color); padding: 10px; background-color: rgba(0,0,0,0.03); border-radius: 6px;"></pre>
+                                <pre id="queue-full-{{ loop.index }}"
+                                     style="display: none; white-space: pre-wrap; word-break: break-all; font-family: var(--font-code); border: 1px solid var(--border-color); padding: 10px; background-color: rgba(0,0,0,0.3); border-radius: 6px; font-size: 12px; margin-top: 6px; max-height: 220px; overflow-y: auto;">{{ m.raw_content }}</pre>
                             {% endif %}
                         </td>
-                        <td style="padding: 12px; color: var(--text-muted); font-size: 12px; text-align: center;">
-                            {{ m.insertion_time.strftime('%Y-%m-%d %H:%M:%S') if m.insertion_time else '--' }}
+                        <!-- Insertion Time -->
+                        <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap;">
+                            {{ m.insertion_time_str }}
+                        </td>
+                        <!-- Dequeue Count -->
+                        <td style="padding: 12px; text-align: center;">
+                            {% if m.dequeue_count > 0 %}
+                                <span class="badge badge-warning font-mono" title="Message has been received {{ m.dequeue_count }} times">{{ m.dequeue_count }}</span>
+                            {% else %}
+                                <span class="badge badge-neutral font-mono">0</span>
+                            {% endif %}
+                        </td>
+                        <!-- Expiration Time -->
+                        <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap;">
+                            {{ m.expiration_time_str }}
+                        </td>
+                        <!-- Actions -->
+                        <td style="padding: 12px; text-align: center;">
+                            <div style="display: flex; gap: 6px; justify-content: center; align-items: center;">
+                                <!-- Edit Message -->
+                                <button type="button" class="btn btn-neutral btn-sm" onclick="openEditQueueMsgModal('{{ queue }}', '{{ m.id }}')" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;" title="View & Edit message payload">
+                                    <i class="fa-solid fa-pen-to-square"></i> Edit
+                                </button>
+                                <!-- Send / Move to Another Queue -->
+                                <button type="button" class="btn btn-neutral btn-sm" onclick="openSendToQueueModal('{{ queue }}', '{{ m.id }}')" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;" title="Send or move to another queue">
+                                    <i class="fa-solid fa-paper-plane" style="color: var(--accent-blue);"></i> Send
+                                </button>
+                                <!-- Dequeue Single (Trash Icon) -->
+                                <button type="button" class="btn btn-danger btn-sm" onclick="openSingleDequeueModal('{{ queue }}', '{{ m.id }}')" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; justify-content: center;" title="Dequeue and delete message">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
                 {% else %}
                     <tr>
-                        <td colspan="3" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
-                            No messages currently visible in this queue. (Messages might be invisible due to active processing/visibility timeout).
+                        <td colspan="7" style="padding: 28px; text-align: center; color: var(--text-muted); font-style: italic;">
+                            No messages currently visible in this queue. (Messages may be invisible due to active processing/visibility timeout, or the queue is empty).
                         </td>
                     </tr>
                 {% endif %}
+                <tr id="noQueueMsgMatchRow" style="display: none;">
+                    <td colspan="7" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                        No messages matched your search query.
+                    </td>
+                </tr>
                 </tbody>
             </table>
         </div>
     </div>
 
-    <script>
-    function toggleFull(i, encoded) {
-      const el = document.getElementById('full-' + i);
-      const btn = event.target;
-      if (el.style.display === 'none') {
-        try {
-          const decoded = atob(encoded);
-          el.textContent = decoded;
-        } catch (err) {
-          el.textContent = "(Invalid Base64 or already plain text)\n" + encoded;
-        }
-        el.style.display = 'block';
-        btn.innerText = "Hide ▲";
-      } else {
-        el.style.display = 'none';
-        btn.innerText = "Show full ▼";
-      }
-    }
-    </script>
-
     {% else %}
     <!-- Queues List State -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; flex-wrap: wrap; gap: 12px;">
             <div>
                 <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white);">
                     <i class="fa-solid fa-list-ol" style="color: var(--success); margin-right: 8px;"></i>
@@ -166,12 +239,9 @@
                             <a class="btn btn-neutral btn-sm" href="{{ url_for('ui.view_queue', queue=q.name) }}" style="padding: 4px 8px; font-size: 11px;">
                                 <i class="fa-solid fa-folder-open"></i> Browse
                             </a>
-                            <form method="POST" action="{{ url_for('ui.delete_queue') }}" onsubmit="return confirm('Are you sure you want to delete message queue \'{{ q.name }}\' and all its contents? This will permanently delete all un-processed messages!');">
-                                <input type="hidden" name="name" value="{{ q.name }}">
-                                <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;">
-                                    <i class="fa-solid fa-trash-can"></i> Delete
-                                </button>
-                            </form>
+                            <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteQueueModal('{{ q.name }}')" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;" title="Delete Message Queue">
+                                <i class="fa-solid fa-trash-can"></i> Delete
+                            </button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -187,5 +257,372 @@
         </div>
     </div>
     {% endif %}
+</div>
+
+<!-- =========================================================================
+     MODALS (Placed outside .glass-card to prevent backdrop stacking bugs)
+     ========================================================================= -->
+
+{% if queue %}
+<!-- Modal 1: Enqueue Message with Base64 & Plain Text Selector -->
+<div class="modal" id="enqueueMsgModal">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="fa-solid fa-circle-plus title-icon" style="color: var(--success);"></i>
+                    <h3 id="enqueueModalTitle">Enqueue Message</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('enqueueMsgModal')">&times;</button>
+            </div>
+            <form id="enqueueMsgForm" onsubmit="handleEnqueueSubmit(event, this, '{{ queue }}')">
+                <div class="modal-body" style="display: flex; flex-direction: column; gap: 16px; padding: 20px;">
+                    <div>
+                        <label style="font-size: 13px; font-weight: 600; color: var(--text-white); margin-bottom: 6px; display: block;">
+                            Message Encoding Format <span style="color: var(--danger);">*</span>
+                        </label>
+                        <div class="option-cards-group">
+                            <label class="option-card" for="enqueueEncodingB64">
+                                <input type="radio" id="enqueueEncodingB64" name="encoding" value="base64" checked>
+                                <div class="option-card-content">
+                                    <div class="option-card-title">
+                                        <i class="fa-solid fa-shield-halved" style="color: var(--success);"></i> Base64 Encoded
+                                        <span class="badge badge-success" style="font-size: 10px; padding: 1px 6px;">Recommended</span>
+                                    </div>
+                                    <div class="option-card-desc">
+                                        Payload is Base64 encoded before enqueuing. Standard for <strong>Azure Functions, WebJobs & Logic Apps</strong> to prevent routing to poison queues.
+                                    </div>
+                                </div>
+                            </label>
+                            <label class="option-card" for="enqueueEncodingPlain">
+                                <input type="radio" id="enqueueEncodingPlain" name="encoding" value="plain">
+                                <div class="option-card-content">
+                                    <div class="option-card-title">
+                                        <i class="fa-solid fa-font" style="color: var(--accent-blue);"></i> Plain Text (Raw UTF-8)
+                                    </div>
+                                    <div class="option-card-desc">
+                                        Sends unencoded raw UTF-8 string payload. Use only if consumers specifically expect plain text.
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <label style="font-size: 13px; font-weight: 600; color: var(--text-white);">
+                                Message Body <span style="color: var(--danger);">*</span>
+                            </label>
+                            <button type="button" class="btn btn-neutral btn-sm" onclick="formatEnqueueJson()" style="font-size: 11px; padding: 2px 8px;">
+                                <i class="fa-solid fa-code"></i> Format JSON
+                            </button>
+                        </div>
+                        <textarea id="enqueueMsgBody" class="code-editor-textarea" style="height: 220px; min-height: 180px;" placeholder="Enter message payload text or JSON (e.g. {&#34;orderId&#34;: 1234, &#34;status&#34;: &#34;pending&#34;})..."></textarea>
+                    </div>
+
+                    <!-- Collapsible Advanced Options -->
+                    <details style="border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 14px; background: rgba(0,0,0,0.15);">
+                        <summary style="cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-normal);">
+                            <i class="fa-solid fa-sliders" style="margin-right: 6px; color: var(--primary);"></i> Advanced Delivery Settings (TTL & Visibility Timeout)
+                        </summary>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px;">
+                            <div>
+                                <label style="font-size: 11.5px; color: var(--text-muted); display: block; margin-bottom: 4px;">Visibility Timeout (seconds)</label>
+                                <input type="number" name="visibility_timeout" value="0" min="0" placeholder="0 (immediately visible)" style="width: 100%; height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-white);">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; color: var(--text-muted); display: block; margin-bottom: 4px;">Time to Live (TTL seconds)</label>
+                                <input type="number" name="time_to_live" placeholder="Default (7 days)" min="1" style="width: 100%; height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-white);">
+                            </div>
+                        </div>
+                    </details>
+
+                    <div id="enqueueMsgStatus" style="font-size: 12px; color: var(--text-muted);"></div>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 11.5px; color: var(--text-muted);">Enqueuing into: <strong id="enqueueTargetQueueName" style="color: var(--text-white);">{{ queue }}</strong></span>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-neutral" onclick="closeModal('enqueueMsgModal')">Cancel</button>
+                        <button type="submit" id="btnSubmitEnqueue" class="btn btn-primary" style="background-color: var(--success); border-color: var(--success);">
+                            <i class="fa-solid fa-plus"></i> Enqueue Message
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 2: In-Place View & Edit Queue Message -->
+<div class="modal" id="editQueueMsgModal">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="fa-solid fa-pen-to-square title-icon" style="color: var(--primary);"></i>
+                    <h3 id="editQueueMsgTitle" style="word-break: break-all;">Edit Message</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('editQueueMsgModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px;">
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <span class="badge badge-blue font-mono" id="editQueueMsgIdBadge">--</span>
+                        <span class="badge badge-warning font-mono" id="editQueueMsgDequeueCount">--</span>
+                    </div>
+                    <span id="editQueueMsgStatus" style="color: var(--text-muted);">Fetching message data...</span>
+                </div>
+
+                <div>
+                    <label style="font-size: 12.5px; font-weight: 600; color: var(--text-white); margin-bottom: 6px; display: block;">Save Payload As</label>
+                    <div class="option-cards-group">
+                        <label class="option-card" for="editMsgEncodingB64" style="min-width: 180px; padding: 10px 12px;">
+                            <input type="radio" id="editMsgEncodingB64" name="editMsgEncoding" value="base64" checked>
+                            <div class="option-card-content">
+                                <div class="option-card-title" style="font-size: 12px;"><i class="fa-solid fa-shield-halved" style="color: var(--success);"></i> Base64 Encoded</div>
+                                <div class="option-card-desc">Azure Functions / WebJobs standard</div>
+                            </div>
+                        </label>
+                        <label class="option-card" for="editMsgEncodingPlain" style="min-width: 180px; padding: 10px 12px;">
+                            <input type="radio" id="editMsgEncodingPlain" name="editMsgEncoding" value="plain">
+                            <div class="option-card-content">
+                                <div class="option-card-title" style="font-size: 12px;"><i class="fa-solid fa-font" style="color: var(--accent-blue);"></i> Plain Text</div>
+                                <div class="option-card-desc">Raw UTF-8 string payload</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Monospace Code / Text Editor -->
+                <textarea id="queueMsgContentEditor" class="code-editor-textarea" style="height: 320px;" spellcheck="false" placeholder="Message content..."></textarea>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 11px; color: var(--text-muted);">Updating resets message visibility immediately.</span>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="btn btn-neutral" onclick="closeModal('editQueueMsgModal')">Cancel</button>
+                    <button type="button" id="btnSaveQueueMsg" class="btn btn-primary" onclick="saveQueueMsg()">
+                        <i class="fa-solid fa-floppy-disk"></i>
+                        <span>Save & Update Message</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 3: Send / Move to Another Queue -->
+<div class="modal" id="sendToQueueModal">
+    <div class="modal-dialog modal-md" style="max-width: 540px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="fa-solid fa-paper-plane title-icon" style="color: var(--accent-blue);"></i>
+                    <h3>Send to Another Queue</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('sendToQueueModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 16px; padding: 20px;">
+                <!-- Selected messages preview -->
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 12.5px; font-weight: 600; color: var(--text-white);">Selected Message(s):</span>
+                        <span class="badge badge-blue font-mono" id="sendQueueCountBadge">1 message</span>
+                    </div>
+                    <div id="sendQueueMsgsList" style="max-height: 100px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 6px;">
+                    </div>
+                </div>
+
+                <!-- Destination Queue Select -->
+                <div>
+                    <label style="font-size: 12.5px; font-weight: 600; color: var(--text-white); margin-bottom: 6px; display: block;">
+                        Destination Queue <span style="color: var(--danger);">*</span>
+                    </label>
+                    <select id="destQueueSelect" onchange="onDestQueueSelectChange(this)" style="width: 100%; height: 38px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.3); color: var(--text-white); padding: 0 10px; font-size: 13px;">
+                        {% if all_queues %}
+                            {% for qname in all_queues %}
+                                <option value="{{ qname }}" {% if qname == queue %}disabled{% endif %}>{{ qname }}{% if qname == queue %} (current){% endif %}</option>
+                            {% endfor %}
+                        {% endif %}
+                        <option value="__custom__">+ Enter custom / new queue name...</option>
+                    </select>
+                </div>
+
+                <div id="destQueueCustomGroup" style="display: none;">
+                    <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: block;">Custom Queue Name</label>
+                    <input type="text" id="destQueueCustomInput" placeholder="e.g. orders-poison or backup-queue" style="width: 100%; height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-white);">
+                </div>
+
+                <!-- Action Type: Move vs Copy -->
+                <div>
+                    <label style="font-size: 12.5px; font-weight: 600; color: var(--text-white); margin-bottom: 6px; display: block;">Operation Type</label>
+                    <div class="option-cards-group">
+                        <label class="option-card" for="transferActionMove" style="min-width: 160px; padding: 10px 12px;">
+                            <input type="radio" id="transferActionMove" name="queueTransferAction" value="move" checked>
+                            <div class="option-card-content">
+                                <div class="option-card-title" style="font-size: 12px;"><i class="fa-solid fa-arrow-right-arrow-left" style="color: var(--warning);"></i> Move</div>
+                                <div class="option-card-desc">Enqueue into target and delete from current queue</div>
+                            </div>
+                        </label>
+                        <label class="option-card" for="transferActionCopy" style="min-width: 160px; padding: 10px 12px;">
+                            <input type="radio" id="transferActionCopy" name="queueTransferAction" value="copy">
+                            <div class="option-card-content">
+                                <div class="option-card-title" style="font-size: 12px;"><i class="fa-solid fa-copy" style="color: var(--accent-blue);"></i> Copy</div>
+                                <div class="option-card-desc">Enqueue duplicate and keep in current queue</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Encoding option -->
+                <div>
+                    <label style="font-size: 12.5px; font-weight: 600; color: var(--text-white); margin-bottom: 6px; display: block;">Destination Encoding</label>
+                    <div style="display: flex; gap: 14px; font-size: 12px; color: var(--text-normal); flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                            <input type="radio" name="queueTransferEncoding" value="preserve" checked> Preserve Original
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                            <input type="radio" name="queueTransferEncoding" value="base64"> Force Base64
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                            <input type="radio" name="queueTransferEncoding" value="plain"> Force Plain Text
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-neutral" onclick="closeModal('sendToQueueModal')">Cancel</button>
+                <button type="button" id="btnConfirmSendToQueue" class="btn btn-primary" onclick="confirmSendToQueue()">
+                    <i class="fa-solid fa-paper-plane"></i> Transfer Messages
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 4: Bulk Dequeue Selected Messages Confirmation -->
+<div class="modal" id="bulkDequeueModal">
+    <div class="modal-dialog modal-md" style="max-width: 520px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group text-danger">
+                    <i class="fa-solid fa-triangle-exclamation title-icon"></i>
+                    <h3>Dequeue Selected Messages</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('bulkDequeueModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                <p style="font-size: 13px; color: var(--text-normal); line-height: 1.5;">
+                    Are you sure you want to permanently pull off and delete the following <strong id="bulkDequeueCount">0</strong> selected message(s)? This operation cannot be undone.
+                </p>
+                <div id="bulkDequeueMsgsList" style="max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 10px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: 8px;">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-neutral" onclick="closeModal('bulkDequeueModal')">Cancel</button>
+                <button type="button" id="btnConfirmBulkDequeue" class="btn btn-danger" onclick="confirmBulkDequeue()">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span>Dequeue Selected Messages</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 5: Single Dequeue Message Confirmation -->
+<div class="modal" id="singleDequeueModal">
+    <div class="modal-dialog modal-md" style="max-width: 480px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group text-danger">
+                    <i class="fa-solid fa-minus-circle title-icon"></i>
+                    <h3>Dequeue Message</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('singleDequeueModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                <p style="font-size: 13.5px; color: var(--text-normal); line-height: 1.5;">
+                    Are you sure you want to dequeue message:
+                </p>
+                <div style="padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 6px; font-family: var(--font-code); font-size: 12px; word-break: break-all; color: #fca5a5;" id="singleDequeueMsgId">
+                    --
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                    <i class="fa-solid fa-triangle-exclamation" style="color: var(--warning); margin-right: 4px;"></i> The message will be permanently removed from the queue.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-neutral" onclick="closeModal('singleDequeueModal')">Cancel</button>
+                <button type="button" id="btnConfirmSingleDequeue" class="btn btn-danger" onclick="confirmSingleDequeue()">
+                    <i class="fa-solid fa-minus"></i> Dequeue Message
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 6: Dequeue All Messages Confirmation -->
+<div class="modal" id="dequeueAllModal">
+    <div class="modal-dialog modal-md" style="max-width: 480px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group text-danger">
+                    <i class="fa-solid fa-broom title-icon"></i>
+                    <h3>Dequeue All Messages</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('dequeueAllModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                <p style="font-size: 13.5px; color: var(--text-normal); line-height: 1.5;">
+                    Are you sure you want to dequeue and delete <strong>ALL active messages</strong> inside queue <code style="color: #f87171; background: rgba(239,68,68,0.1); padding: 2px 6px; border-radius: 4px;" id="dequeueAllTargetQueueName">{{ queue }}</code>?
+                </p>
+                <div style="padding: 10px 14px; background: rgba(239,68,68,0.08); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 12px; color: #fca5a5;">
+                    <i class="fa-solid fa-triangle-exclamation" style="margin-right: 4px;"></i> All unprocessed messages in the queue backlog will be permanently removed.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-neutral" onclick="closeModal('dequeueAllModal')">Cancel</button>
+                <form method="POST" action="{{ url_for('ui.dequeue_all', queue=queue) }}" style="display: inline;">
+                    <button type="submit" class="btn btn-danger" style="display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-trash-can"></i>
+                        <span>Yes, Dequeue All</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Modal 7: Delete Queue Confirmation -->
+<div class="modal" id="deleteQueueModal">
+    <div class="modal-dialog modal-md" style="max-width: 480px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group text-danger">
+                    <i class="fa-solid fa-triangle-exclamation title-icon"></i>
+                    <h3>Delete Message Queue</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('deleteQueueModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                <p style="font-size: 13.5px; color: var(--text-normal); line-height: 1.5;">
+                    Are you sure you want to permanently delete message queue <strong id="deleteQueueTargetName" style="color: #ef4444;">{{ queue or 'queue' }}</strong>?
+                </p>
+                <div style="padding: 10px 14px; background: rgba(239,68,68,0.08); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 12px; color: #fca5a5;">
+                    <i class="fa-solid fa-triangle-exclamation" style="margin-right: 4px;"></i> The queue node along with all un-dequeued messages will be deleted immediately.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-neutral" onclick="closeModal('deleteQueueModal')">Cancel</button>
+                <form id="deleteQueueForm" method="POST" action="{{ url_for('ui.delete_queue') }}" style="display: inline;">
+                    <input type="hidden" id="deleteQueueInput" name="name" value="{{ queue or '' }}">
+                    <button type="submit" class="btn btn-danger" style="display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-trash-can"></i>
+                        <span>Yes, Delete Queue</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}

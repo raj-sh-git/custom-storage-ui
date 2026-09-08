@@ -1,17 +1,20 @@
 import os
 import io
+import re
+import math
 import base64
 import json
 import uuid
 import mimetypes
 import csv
 import openpyxl
+import zipfile
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, session, send_file, flash, Blueprint
+from flask import Flask, render_template, request, redirect, url_for, session, send_file, flash, Blueprint, jsonify
 from flask_session import Session
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.storage.fileshare import ShareServiceClient
 from azure.storage.queue import QueueServiceClient
 from azure.data.tables import TableServiceClient, TableEntity
@@ -381,12 +384,14 @@ def delete_container():
 @ui.route('/blobs/<container_name>', methods=['GET', 'POST'])
 def view_blobs(container_name):
     if not require_auth():
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json:
+            return jsonify({"success": False, "error": "Not authenticated"}), 401
         return redirect(url_for('ui.login'))
 
     service = get_blob_service()
     container_client = service.get_container_client(container_name)
 
-    # Handle multiple files upload
+    # Handle multiple files upload (regular form or AJAX with progress)
     if request.method == 'POST' and 'files' in request.files:
         folder = request.form.get('folder', '').strip()
         files = request.files.getlist('files')
@@ -402,11 +407,26 @@ def view_blobs(container_name):
                 blob_name = f"{folder.rstrip('/')}/{file.filename}"
 
             try:
-                container_client.upload_blob(name=blob_name, data=file, overwrite=True)
+                guessed_type = mimetypes.guess_type(blob_name)[0] or 'application/octet-stream'
+                container_client.upload_blob(
+                    name=blob_name,
+                    data=file,
+                    overwrite=True,
+                    content_settings=ContentSettings(content_type=guessed_type)
+                )
                 uploaded.append(file.filename)
             except Exception as e:
                 failed.append(f"{file.filename} ({e})")
                 
+        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.headers.get('Accept') == 'application/json'
+        if is_ajax:
+            return jsonify({
+                "success": len(uploaded) > 0 or len(failed) == 0,
+                "uploaded_count": len(uploaded),
+                "uploaded": uploaded,
+                "failed": failed
+            })
+
         if uploaded:
             flash(f"Successfully uploaded {len(uploaded)} file(s).")
         if failed:
@@ -414,15 +434,173 @@ def view_blobs(container_name):
 
         return redirect(url_for('ui.view_blobs', container_name=container_name))
 
+    # Pagination & Search parameters
+    search_query = request.args.get('q', '').strip()
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+    try:
+        limit = int(request.args.get('limit', 20))
+        if limit not in [10, 15, 20, 50, 100]:
+            limit = 20
+    except ValueError:
+        limit = 20
+
     # List blobs
     try:
-        blobs = list(container_client.list_blobs())
+        raw_blobs = list(container_client.list_blobs())
     except Exception as e:
         flash(f"Error listing blobs: {e}")
-        blobs = []
+        raw_blobs = []
+
+    # Filter by search query if provided
+    if search_query:
+        filtered_blobs = [b for b in raw_blobs if search_query.lower() in b.name.lower()]
+    else:
+        filtered_blobs = raw_blobs
+
+    total_items = len(filtered_blobs)
+    total_pages = max(1, math.ceil(total_items / limit))
+    if page > total_pages:
+        page = total_pages
+
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    page_blobs = filtered_blobs[start_idx:end_idx]
+    page_start = start_idx + 1 if total_items > 0 else 0
+    page_end = min(end_idx, total_items)
 
     tree = load_sidebar_tree()
-    return render_template('blobs.html', blobs=blobs, container_name=container_name, sidebar_tree=tree, active_service='blobs', active_item=container_name)
+    return render_template(
+        'blobs.html',
+        blobs=page_blobs,
+        all_blobs_count=len(raw_blobs),
+        container_name=container_name,
+        sidebar_tree=tree,
+        active_service='blobs',
+        active_item=container_name,
+        page=page,
+        limit=limit,
+        total_pages=total_pages,
+        total_items=total_items,
+        page_start=page_start,
+        page_end=page_end,
+        search_query=search_query
+    )
+
+@ui.route('/blobs/<container_name>/delete-multiple', methods=['POST'])
+def delete_multiple_blobs(container_name):
+    if not require_auth():
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+    
+    data = request.get_json(silent=True) or request.form
+    blob_names = data.get('blob_names', [])
+    if isinstance(blob_names, str):
+        try:
+            blob_names = json.loads(blob_names)
+        except Exception:
+            blob_names = [blob_names]
+            
+    if not blob_names:
+        return jsonify({"success": False, "error": "No blobs selected for deletion"}), 400
+        
+    service = get_blob_service()
+    container_client = service.get_container_client(container_name)
+    
+    deleted = []
+    errors = []
+    for name in blob_names:
+        try:
+            client = container_client.get_blob_client(name)
+            client.delete_blob()
+            deleted.append(name)
+        except Exception as e:
+            errors.append(f"{name}: {str(e)}")
+            
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json:
+        return jsonify({
+            "success": len(deleted) > 0 or len(errors) == 0,
+            "deleted_count": len(deleted),
+            "deleted": deleted,
+            "errors": errors
+        })
+        
+    if deleted:
+        flash(f"Successfully deleted {len(deleted)} blob(s).")
+    if errors:
+        flash(f"Failed to delete: {', '.join(errors)}")
+    return redirect(url_for('ui.view_blobs', container_name=container_name))
+
+@ui.route('/blobs/<container_name>/content', methods=['GET'])
+def get_blob_content(container_name):
+    if not require_auth():
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+        
+    blob_name = request.args.get('blob_name')
+    if not blob_name:
+        return jsonify({"success": False, "error": "Blob name required"}), 400
+        
+    try:
+        client = get_blob_service().get_blob_client(container_name, blob_name)
+        props = client.get_blob_properties()
+        size = props.size
+        content_type = props.content_settings.content_type or mimetypes.guess_type(blob_name)[0] or 'text/plain'
+        
+        # Check size limitation for in-browser editing (10MB limit)
+        if size > 10 * 1024 * 1024:
+            return jsonify({
+                "success": False,
+                "error": f"File size ({size / (1024*1024):.1f} MB) exceeds in-browser editor limit of 10MB. Please download the file to edit."
+            }), 400
+            
+        stream = client.download_blob()
+        raw_bytes = stream.readall()
+        
+        try:
+            content = raw_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                content = raw_bytes.decode('latin-1')
+            except Exception:
+                return jsonify({
+                    "success": False,
+                    "error": "This file appears to be in a binary format (e.g., image, executable, archive) and cannot be edited in-browser. Please download it directly."
+                }), 400
+                
+        return jsonify({
+            "success": True,
+            "name": blob_name,
+            "content": content,
+            "size": size,
+            "content_type": content_type
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@ui.route('/blobs/<container_name>/save-content', methods=['POST'])
+def save_blob_content(container_name):
+    if not require_auth():
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+        
+    data = request.get_json(silent=True) or request.form
+    blob_name = data.get('blob_name')
+    content = data.get('content')
+    
+    if not blob_name or content is None:
+        return jsonify({"success": False, "error": "Blob name and content are required"}), 400
+        
+    try:
+        client = get_blob_service().get_blob_client(container_name, blob_name)
+        guessed_type = mimetypes.guess_type(blob_name)[0] or 'text/plain'
+        client.upload_blob(
+            data=content.encode('utf-8'),
+            overwrite=True,
+            content_settings=ContentSettings(content_type=guessed_type)
+        )
+        return jsonify({"success": True, "message": f"Blob '{blob_name}' saved successfully!"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @ui.route('/blobs/<container_name>/create-folder', methods=['POST'])
 def create_blob_folder(container_name):
@@ -463,6 +641,121 @@ def delete_blob(container_name):
         flash(f"Deleted '{blob_name}'")
     except Exception as e:
         flash(f"Delete failed: {e}")
+    return redirect(url_for('ui.view_blobs', container_name=container_name))
+
+@ui.route('/blobs/<container_name>/download-selected', methods=['POST'])
+def download_selected_blobs(container_name):
+    if not require_auth():
+        return redirect(url_for('ui.login'))
+        
+    blob_names = request.form.getlist('blob_names')
+    if not blob_names:
+        raw = request.form.get('blob_names_json')
+        if raw:
+            try:
+                blob_names = json.loads(raw)
+            except Exception:
+                blob_names = [b.strip() for b in raw.split(',') if b.strip()]
+                
+    if not blob_names:
+        flash("No blobs selected for download.")
+        return redirect(url_for('ui.view_blobs', container_name=container_name))
+        
+    service = get_blob_service()
+    container_client = service.get_container_client(container_name)
+    
+    # If single blob selected, download file directly
+    if len(blob_names) == 1:
+        blob_name = blob_names[0]
+        try:
+            client = container_client.get_blob_client(blob_name)
+            stream = client.download_blob()
+            data = stream.readall()
+            mime_type = mimetypes.guess_type(blob_name)[0] or 'application/octet-stream'
+            return send_file(io.BytesIO(data), as_attachment=True, download_name=blob_name.split('/')[-1], mimetype=mime_type)
+        except Exception as e:
+            flash(f"Download failed: {e}")
+            return redirect(url_for('ui.view_blobs', container_name=container_name))
+        
+    # If multiple blobs, package into in-memory ZIP
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for name in blob_names:
+            try:
+                client = container_client.get_blob_client(name)
+                blob_data = client.download_blob().readall()
+                zip_file.writestr(name, blob_data)
+            except Exception as e:
+                print(f"Error adding {name} to zip: {e}")
+                
+    zip_buffer.seek(0)
+    return send_file(
+        zip_buffer,
+        as_attachment=True,
+        download_name=f"{container_name}-selected.zip",
+        mimetype='application/zip'
+    )
+
+@ui.route('/blobs/<container_name>/download-all')
+def download_all_blobs(container_name):
+    if not require_auth():
+        return redirect(url_for('ui.login'))
+        
+    service = get_blob_service()
+    container_client = service.get_container_client(container_name)
+    
+    try:
+        blobs = list(container_client.list_blobs())
+    except Exception as e:
+        flash(f"Error listing blobs for download: {e}")
+        return redirect(url_for('ui.view_blobs', container_name=container_name))
+        
+    if not blobs:
+        flash("Container is empty. Nothing to download.")
+        return redirect(url_for('ui.view_blobs', container_name=container_name))
+        
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for b in blobs:
+            if b.name.endswith('/'):
+                continue
+            try:
+                client = container_client.get_blob_client(b.name)
+                blob_data = client.download_blob().readall()
+                zip_file.writestr(b.name, blob_data)
+            except Exception as e:
+                print(f"Error zipping {b.name}: {e}")
+                
+    zip_buffer.seek(0)
+    return send_file(
+        zip_buffer,
+        as_attachment=True,
+        download_name=f"{container_name}-all.zip",
+        mimetype='application/zip'
+    )
+
+@ui.route('/blobs/<container_name>/empty', methods=['POST'])
+def empty_container(container_name):
+    if not require_auth():
+        return redirect(url_for('ui.login'))
+        
+    service = get_blob_service()
+    container_client = service.get_container_client(container_name)
+    
+    try:
+        blobs = list(container_client.list_blobs())
+        deleted = 0
+        for b in blobs:
+            try:
+                container_client.delete_blob(b.name)
+                deleted += 1
+            except Exception as e:
+                print(f"Error deleting {b.name}: {e}")
+                
+        flash(f"Emptied container '{container_name}'. Deleted {deleted} blob(s).")
+    except Exception as e:
+        flash(f"Error emptying container: {e}")
+        
     return redirect(url_for('ui.view_blobs', container_name=container_name))
 
 # -----------------------
@@ -617,6 +910,114 @@ def delete_file(share):
     return redirect(url_for('ui.list_files', share=share))
 
 # -----------------------
+# Queue Helper Functions
+# -----------------------
+def encode_message_payload(text, encoding_mode="base64"):
+    """
+    Encodes text based on the selected mode:
+    - 'base64': Converts UTF-8 string to Base64 (Standard for Azure Functions / WebJobs / Logic Apps)
+    - 'plain': Keeps raw UTF-8 string
+    """
+    if text is None:
+        text = ""
+    if encoding_mode == "base64":
+        return base64.b64encode(text.encode("utf-8")).decode("utf-8")
+    return text
+
+def decode_message_payload(raw_content):
+    """
+    Smart decodes message content.
+    Handles standard Base64, multi-line Base64, URL-safe Base64, and unpadded Base64.
+    Returns tuple: (decoded_text, is_base64)
+    """
+    if raw_content is None:
+        return "", False
+    if isinstance(raw_content, bytes):
+        try:
+            raw_content = raw_content.decode('utf-8')
+        except Exception:
+            raw_content = str(raw_content)
+    else:
+        raw_content = str(raw_content)
+
+    clean_content = raw_content.strip()
+    if not clean_content:
+        return "", False
+
+    # Remove internal whitespace, newlines, carriage returns from candidate base64
+    cleaned = re.sub(r'[\r\n\s\t]', '', clean_content)
+    
+    # Must be valid length and character set for Base64
+    if len(cleaned) < 4 or not re.match(r'^[A-Za-z0-9+/=_-]+$', cleaned):
+        return clean_content, False
+
+    # Add missing padding if omitted
+    missing_padding = len(cleaned) % 4
+    if missing_padding:
+        cleaned += '=' * (4 - missing_padding)
+
+    # Try standard Base64 and URL-safe Base64
+    for decode_fn in (base64.b64decode, base64.urlsafe_b64decode):
+        try:
+            decoded_bytes = decode_fn(cleaned)
+            decoded_str = decoded_bytes.decode('utf-8')
+            
+            # Verify decoded string is non-empty, distinct from original, and composed of valid text
+            if decoded_str and decoded_str.strip() and decoded_str != clean_content:
+                printable_count = sum(1 for c in decoded_str if c.isprintable() or c in '\r\n\t')
+                if printable_count / len(decoded_str) >= 0.8:
+                    return decoded_str, True
+        except Exception:
+            pass
+
+    return clean_content, False
+
+def receive_and_find_messages(queue_client, target_ids, max_batches=3):
+    """
+    Receives messages from queue to find specific message ID(s).
+    Returns a dict mapping msg_id -> received QueueMessage (which has .pop_receipt).
+    Resets visibility of any unselected messages to 0 immediately.
+    """
+    target_ids_set = set(target_ids)
+    found = {}
+    unselected = []
+    
+    for _ in range(max_batches):
+        if len(found) == len(target_ids_set):
+            break
+        try:
+            msgs = list(queue_client.receive_messages(messages_per_page=32, visibility_timeout=30))
+        except Exception:
+            break
+        if not msgs:
+            break
+        for m in msgs:
+            if m.id in target_ids_set:
+                found[m.id] = m
+            else:
+                unselected.append(m)
+                
+    # Reset visibility for unselected messages so they don't stay hidden
+    for m in unselected:
+        if m.id not in found:
+            try:
+                queue_client.update_message(m.id, m.pop_receipt, visibility_timeout=0)
+            except Exception:
+                pass
+            
+    return found
+
+def format_queue_msg_time(msg, *attr_names):
+    """Safely extracts and formats datetime from a QueueMessage across different SDK versions."""
+    for attr in attr_names:
+        val = getattr(msg, attr, None)
+        if val is not None:
+            if hasattr(val, 'strftime'):
+                return val.strftime('%Y-%m-%d %H:%M:%S UTC')
+            return str(val)
+    return '--'
+
+# -----------------------
 # Queue Routes
 # -----------------------
 @ui.route('/queues')
@@ -663,7 +1064,8 @@ def view_queue(queue):
     if not require_auth():
         return redirect(url_for('ui.login'))
     
-    client = get_queue_service().get_queue_client(queue)
+    svc = get_queue_service()
+    client = svc.get_queue_client(queue)
     try:
         messages = list(client.peek_messages(max_messages=32))
     except Exception as e:
@@ -671,24 +1073,275 @@ def view_queue(queue):
         return redirect(url_for('ui.queues'))
 
     for m in messages:
-        # Check if content needs preview truncation
-        m.preview = (m.content[:100] + "...") if len(m.content) > 100 else m.content
+        decoded_text, is_b64 = decode_message_payload(m.content)
+        m.raw_content = m.content
+        m.decoded_content = decoded_text
+        m.is_base64 = is_b64
+        m_content_stripped = (m.content or '').strip()
+        decoded_stripped = (decoded_text or '').strip()
+        m.raw_preview = (m_content_stripped[:120] + "...") if len(m_content_stripped) > 120 else m_content_stripped
+        m.decoded_preview = (decoded_stripped[:120] + "...") if len(decoded_stripped) > 120 else decoded_stripped
+        m.preview = m.raw_preview
+        m.insertion_time_str = format_queue_msg_time(m, 'inserted_on', 'insertion_time')
+        m.expiration_time_str = format_queue_msg_time(m, 'expires_on', 'expiration_time')
+        m.dequeue_count = getattr(m, 'dequeue_count', 0)
         m.encoded_json = json.dumps(m.content)
 
+    # Get list of all queue names for the Send/Move to Another Queue dropdown
+    try:
+        all_queues = [q.name for q in svc.list_queues()]
+    except Exception:
+        all_queues = [queue]
+
     tree = load_sidebar_tree()
-    return render_template('queues.html', queue=queue, messages=messages, sidebar_tree=tree, active_service='queues', active_item=queue)
+    return render_template('queues.html', queue=queue, messages=messages, all_queues=all_queues, sidebar_tree=tree, active_service='queues', active_item=queue)
 
 @ui.route('/queues/<queue>/enqueue', methods=['POST'])
 def enqueue(queue):
     if not require_auth():
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
         return redirect(url_for('ui.login'))
-    msg = request.form.get('msg')
+    
+    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    data = request.get_json(silent=True) if request.is_json else request.form
+    
+    msg = data.get('msg') or data.get('content') or ''
+    encoding = data.get('encoding', 'base64') # Default to base64 for Azure Functions compatibility
+    visibility_timeout = int(data.get('visibility_timeout') or 0)
+    time_to_live = data.get('time_to_live')
+    time_to_live = int(time_to_live) if time_to_live else None
+    
+    if not msg:
+        if is_ajax:
+            return jsonify({'success': False, 'error': 'Message content cannot be empty.'}), 400
+        flash("Message body cannot be empty.")
+        return redirect(url_for('ui.view_queue', queue=queue))
+        
     try:
-        get_queue_service().get_queue_client(queue).send_message(msg)
-        flash("Message enqueued")
+        payload = encode_message_payload(msg, encoding)
+        client = get_queue_service().get_queue_client(queue)
+        kwargs = {}
+        if visibility_timeout > 0:
+            kwargs['visibility_timeout'] = visibility_timeout
+        if time_to_live:
+            kwargs['time_to_live'] = time_to_live
+            
+        send_res = client.send_message(payload, **kwargs)
+        if is_ajax:
+            return jsonify({
+                'success': True, 
+                'message': 'Message enqueued successfully',
+                'message_id': getattr(send_res, 'id', None),
+                'encoding': encoding
+            })
+        flash(f"Message enqueued ({'Base64 encoded' if encoding == 'base64' else 'Plain text'})")
     except Exception as e:
+        if is_ajax:
+            return jsonify({'success': False, 'error': str(e)}), 500
         flash(f"Enqueue failed: {e}")
+        
     return redirect(url_for('ui.view_queue', queue=queue))
+
+@ui.route('/queues/<queue>/message-content', methods=['GET'])
+def get_queue_message_content(queue):
+    if not require_auth():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        
+    msg_id = request.args.get('msg_id')
+    if not msg_id:
+        return jsonify({'success': False, 'error': 'Message ID required.'}), 400
+        
+    try:
+        client = get_queue_service().get_queue_client(queue)
+        # Peek messages to find matching ID
+        messages = list(client.peek_messages(max_messages=32))
+        target = next((m for m in messages if m.id == msg_id), None)
+        
+        if not target:
+            return jsonify({'success': False, 'error': 'Message not found in visible queue items.'}), 404
+            
+        decoded_text, is_b64 = decode_message_payload(target.content)
+        return jsonify({
+            'success': True,
+            'id': target.id,
+            'raw_content': target.content,
+            'decoded_content': decoded_text,
+            'is_base64': is_b64,
+            'insertion_time': format_queue_msg_time(target, 'inserted_on', 'insertion_time'),
+            'expiration_time': format_queue_msg_time(target, 'expires_on', 'expiration_time'),
+            'dequeue_count': getattr(target, 'dequeue_count', 0)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@ui.route('/queues/<queue>/update-message', methods=['POST'])
+def update_queue_message(queue):
+    if not require_auth():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        
+    data = request.get_json(silent=True) or request.form
+    msg_id = data.get('msg_id')
+    content = data.get('content', '')
+    encoding = data.get('encoding', 'base64')
+    
+    if not msg_id:
+        return jsonify({'success': False, 'error': 'Message ID required.'}), 400
+        
+    try:
+        client = get_queue_service().get_queue_client(queue)
+        found_map = receive_and_find_messages(client, [msg_id], max_batches=3)
+        
+        if msg_id not in found_map:
+            return jsonify({'success': False, 'error': 'Message could not be leased for update. It may be currently invisible or processed.'}), 404
+            
+        msg = found_map[msg_id]
+        payload = encode_message_payload(content, encoding)
+        client.update_message(msg.id, msg.pop_receipt, content=payload, visibility_timeout=0)
+        return jsonify({'success': True, 'message': 'Message successfully updated in queue.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@ui.route('/queues/<queue>/dequeue-single', methods=['POST'])
+def dequeue_single_message(queue):
+    if not require_auth():
+        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        return redirect(url_for('ui.login'))
+        
+    data = request.get_json(silent=True) or request.form
+    msg_id = data.get('msg_id')
+    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
+    if not msg_id:
+        if is_ajax:
+            return jsonify({'success': False, 'error': 'Message ID required.'}), 400
+        flash("Message ID required.")
+        return redirect(url_for('ui.view_queue', queue=queue))
+        
+    try:
+        client = get_queue_service().get_queue_client(queue)
+        found_map = receive_and_find_messages(client, [msg_id], max_batches=3)
+        
+        if msg_id not in found_map:
+            if is_ajax:
+                return jsonify({'success': False, 'error': 'Message not found or already processed.'}), 404
+            flash("Message not found or already processed.")
+            return redirect(url_for('ui.view_queue', queue=queue))
+            
+        msg = found_map[msg_id]
+        client.delete_message(msg.id, msg.pop_receipt)
+        
+        if is_ajax:
+            return jsonify({'success': True, 'message': f'Message {msg_id} dequeued and permanently deleted.'})
+        flash("Dequeued one message")
+    except Exception as e:
+        if is_ajax:
+            return jsonify({'success': False, 'error': str(e)}), 500
+        flash(f"Dequeue failed: {e}")
+        
+    return redirect(url_for('ui.view_queue', queue=queue))
+
+@ui.route('/queues/<queue>/dequeue-multiple', methods=['POST'])
+def dequeue_multiple_messages(queue):
+    if not require_auth():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        
+    data = request.get_json(silent=True) or {}
+    msg_ids = data.get('msg_ids', [])
+    
+    if not msg_ids:
+        return jsonify({'success': False, 'error': 'No message IDs provided.'}), 400
+        
+    try:
+        client = get_queue_service().get_queue_client(queue)
+        found_map = receive_and_find_messages(client, msg_ids, max_batches=4)
+        
+        deleted_count = 0
+        for mid, msg in found_map.items():
+            try:
+                client.delete_message(msg.id, msg.pop_receipt)
+                deleted_count += 1
+            except Exception:
+                pass
+                
+        return jsonify({
+            'success': True, 
+            'deleted_count': deleted_count, 
+            'requested_count': len(msg_ids),
+            'message': f"Successfully dequeued {deleted_count} message(s)."
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@ui.route('/queues/<queue>/send-to-queue', methods=['POST'])
+def send_to_another_queue(queue):
+    if not require_auth():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        
+    data = request.get_json(silent=True) or {}
+    msg_ids = data.get('msg_ids', [])
+    dest_queue = data.get('destination_queue', '').strip()
+    action_type = data.get('action_type', 'move') # 'move' or 'copy'
+    encoding = data.get('encoding', 'preserve') # 'preserve', 'base64', 'plain'
+    custom_content = data.get('custom_content')
+    
+    if not msg_ids:
+        return jsonify({'success': False, 'error': 'No messages selected to send.'}), 400
+    if not dest_queue:
+        return jsonify({'success': False, 'error': 'Destination queue name required.'}), 400
+        
+    svc = get_queue_service()
+    try:
+        source_client = svc.get_queue_client(queue)
+        dest_client = svc.get_queue_client(dest_queue)
+        
+        # Verify destination queue exists or create if requested
+        try:
+            dest_client.get_queue_properties()
+        except ResourceNotFoundError:
+            return jsonify({'success': False, 'error': f"Destination queue '{dest_queue}' does not exist."}), 404
+            
+        found_map = receive_and_find_messages(source_client, msg_ids, max_batches=4)
+        transferred_count = 0
+        
+        for mid, msg in found_map.items():
+            # Determine payload to send
+            if custom_content is not None and len(msg_ids) == 1:
+                send_payload = encode_message_payload(custom_content, encoding if encoding != 'preserve' else 'base64')
+            elif encoding == 'preserve':
+                send_payload = msg.content
+            elif encoding == 'base64':
+                decoded, _ = decode_message_payload(msg.content)
+                send_payload = encode_message_payload(decoded, 'base64')
+            elif encoding == 'plain':
+                decoded, _ = decode_message_payload(msg.content)
+                send_payload = encode_message_payload(decoded, 'plain')
+            else:
+                send_payload = msg.content
+                
+            # Send to destination queue
+            dest_client.send_message(send_payload)
+            transferred_count += 1
+            
+            # If move, delete from source queue; if copy, reset visibility to 0
+            if action_type == 'move':
+                source_client.delete_message(msg.id, msg.pop_receipt)
+            else:
+                try:
+                    source_client.update_message(msg.id, msg.pop_receipt, visibility_timeout=0)
+                except Exception:
+                    pass
+                    
+        return jsonify({
+            'success': True,
+            'transferred_count': transferred_count,
+            'action_type': action_type,
+            'destination_queue': dest_queue,
+            'message': f"Successfully {'moved' if action_type == 'move' else 'copied'} {transferred_count} message(s) to queue '{dest_queue}'."
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @ui.route('/queues/<queue>/dequeue', methods=['POST'])
 def dequeue(queue):

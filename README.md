@@ -1,4 +1,4 @@
-# Azure Storage UI Manager
+# Azure Storage UI Manager (v2.1)
 
 <img width="2880" height="1622" alt="image" src="https://github.com/user-attachments/assets/f068c15f-f548-455c-a697-98dbd15b125f" />
 
@@ -18,9 +18,22 @@ This application is designed to solve common challenges when working with secure
 3. **Unified Multi-Format Storage Console:**
    Instead of jumping between multiple portals or heavy client tools, developers and operations teams get a single, responsive portal that handles four distinct Azure storage architectures (unstructured Blobs, SMB File Shares, Message Queues, and NoSQL Tables) simultaneously, authenticated securely using Connection Strings, Account Keys, or AAD Service Principal credentials.
 
-## Features
+## Features & What's New in v2.1
 
-- **Premium Glassmorphic UI**: Beautiful dark/light theme switching with custom Outfit and Inter typography and fluent animations.
+- **✨ Queue Multi-Select & Bulk Dequeue**: Select single or multiple queue messages via checkboxes. Pull off and permanently delete selected messages in batch with confirmation dialogs.
+- **✨ In-Place Queue Message Editor**: Inspect, view, and live-edit message payloads in a monospace editor and update them directly back to the Azure Queue with immediate visibility reset.
+- **✨ Cross-Queue Routing & Re-enqueue (Move / Copy)**: Send single or multiple messages to another queue in the storage account. Select target queue from a dynamic dropdown, choose between **Move** (enqueue to target + delete from source) or **Copy** (keep in source), and select encoding format.
+- **✨ Native Base64 & Plain Text Enqueueing**:
+  - **Base64 Encoding (Recommended)**: Auto-encodes message payloads into Base64 UTF-8 strings before enqueuing. Essential for **Azure Functions, Azure WebJobs, and Logic Apps** queue triggers to prevent messages from failing deserialization and being routed directly into the poison queue (`{queue}-poison`).
+  - **Plain Text (Raw UTF-8)**: Supports raw unencoded text payloads for custom non-Azure-Function consumers.
+  - **Smart Decoding**: Automatically detects Base64 payloads, renders decoded human-readable previews, and provides quick toggles to view raw payloads.
+- **✨ Multi-Select Bulk Blob Deletion & Download**: Select individual or all blobs across pages with checkboxes. Batch-delete or download selected files as a single file or compressed ZIP archive.
+- **✨ Download All as ZIP & Empty Container**: One-click download of all blobs in a container as a ZIP file, or purge all files with the "Empty Container" action.
+- **✨ In-Browser Blob File Editor**: View, edit, and save text, JSON, YAML, Markdown, XML, CSV, shell scripts, and code files directly back to Azure Storage with character/size feedback in a centered modal.
+- **✨ Instant Search & Path Filter**: Real-time client-side and backend search bar with one-click clear button to quickly filter large volumes of blobs and queue messages.
+- **✨ Scalable Pagination & Page Size Selector**: Configurable page sizes (`10`, `15`, `20`, `50`, `100` rows per page) with fast slicing, Last Modified timestamps, and page navigation.
+- **✨ Live Upload Progress & Timeout Protection**: Asynchronous multi-file uploads with percentage and byte-level progress bar, 180s timeout, and 502/504 gateway timeout protection with retry options.
+- **✨ Version 2.1 Changelog Popover**: Interactive version badge displaying changelog details on hover or focus.
 - **Bulk Creator Studio**: Dropdown selector to choose your target service type and upload a CSV or Excel (`.xlsx`) list of names to provision them in bulk with full error-reporting.
 - **Blob Storage Explorer**:
   - Simulative nested folder structure creation.
@@ -31,6 +44,7 @@ This application is designed to solve common challenges when working with secure
 - **Message Queue Studio**: Inspect, peek, enqueue new messages, dequeue individually, or clean-wipe queues (dequeue-all) with automatic Base64 parsing.
 - **NoSQL Table Browser**: Query and view entities, insert new records (partition key, row key, and optional property-value pairs), and delete selected entities.
 - **3-Tab Secure Auth**: Securely connect and cache details locally via Connection Strings, Access Keys, or Entra ID Service Principals (Tenant ID, Client ID, Client Secret).
+- **Premium Glassmorphic UI**: Beautiful dark/light theme switching with custom Outfit and Inter typography and fluent animations.
 
 ---
 
