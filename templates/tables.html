@@ -85,15 +85,38 @@
                                     <strong style="color: var(--accent-blue);">{{ k }}</strong>: <span style="color: var(--text-normal);">{{ v }}</span>
                                 </div>
                             {% endfor %}
+                            <script id="table-entity-data-{{ loop.index }}" type="application/json">{{ e|tojson|safe }}</script>
                         </td>
-                        <td style="padding: 12px; text-align: center;">
-                            <form method="POST" action="{{ url_for('ui.delete_entity', table_name=table_name) }}" onsubmit="return confirm('Are you sure you want to delete this entity?');">
-                                <input type="hidden" name="pk" value="{{ e['PartitionKey'] }}">
-                                <input type="hidden" name="rk" value="{{ e['RowKey'] }}">
-                                <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; margin: 0 auto;">
-                                    <i class="fa-solid fa-trash-can"></i> Delete
+                        <!-- Actions 3-dot dropdown -->
+                        <td style="padding: 12px; text-align: center; position: relative;">
+                            <div class="action-dropdown">
+                                <button type="button" class="action-dropdown-btn" onclick="toggleActionDropdown(event, this)" title="Actions">
+                                    <i class="fa-solid fa-ellipsis-vertical"></i>
                                 </button>
-                            </form>
+                                <div class="action-dropdown-menu">
+                                    <button type="button" class="action-dropdown-item" onclick="openEditTableEntityModal('{{ table_name }}', '{{ e['PartitionKey'] }}', '{{ e['RowKey'] }}', {{ loop.index }})">
+                                        <i class="fa-solid fa-pen-to-square"></i>
+                                        <span>Edit Entity</span>
+                                    </button>
+                                    <button type="button" class="action-dropdown-item" onclick="openCloneTableEntityModal('{{ table_name }}', '{{ e['PartitionKey'] }}', '{{ e['RowKey'] }}')">
+                                        <i class="fa-solid fa-clone"></i>
+                                        <span>Clone / Duplicate</span>
+                                    </button>
+                                    <button type="button" class="action-dropdown-item" onclick="openCopyTableEntityModal('{{ table_name }}', '{{ e['PartitionKey'] }}', '{{ e['RowKey'] }}')">
+                                        <i class="fa-solid fa-arrows-up-down-left-right"></i>
+                                        <span>Copy to Table</span>
+                                    </button>
+                                    <button type="button" class="action-dropdown-item" onclick="copyTableEntityJson({{ loop.index }})">
+                                        <i class="fa-solid fa-code"></i>
+                                        <span>Copy JSON</span>
+                                    </button>
+                                    <div class="action-dropdown-divider"></div>
+                                    <button type="button" class="action-dropdown-item danger" onclick="openDeleteTableEntityModal('{{ table_name }}', '{{ e['PartitionKey'] }}', '{{ e['RowKey'] }}')">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                        <span>Delete Entity</span>
+                                    </button>
+                                </div>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -174,5 +197,196 @@
         </div>
     </div>
     {% endif %}
+</div>
+
+<!-- =========================================================================
+     MODALS
+     ========================================================================= -->
+
+<!-- Modal 1: Edit Table Entity Modal -->
+<div class="modal" id="editTableEntityModal">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="fa-solid fa-pen-to-square title-icon" style="color: var(--warning);"></i>
+                    <h3 id="editTableEntityTitle">Edit Table Entity</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('editTableEntityModal')">&times;</button>
+            </div>
+            <form id="editTableEntityForm" onsubmit="handleUpdateTableEntitySubmit(event)">
+                <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                    <div style="display: flex; gap: 12px;">
+                        <div style="flex: 1;">
+                            <label class="form-label" style="font-size: 12px; color: var(--text-muted);">PartitionKey</label>
+                            <input type="text" id="editTableEntityPK" class="form-control" readonly style="background: rgba(0,0,0,0.2); opacity: 0.8; font-family: var(--font-code);">
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="form-label" style="font-size: 12px; color: var(--text-muted);">RowKey</label>
+                            <input type="text" id="editTableEntityRK" class="form-control" readonly style="background: rgba(0,0,0,0.2); opacity: 0.8; font-family: var(--font-code);">
+                        </div>
+                    </div>
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <label class="form-label" style="font-size: 12px; color: var(--text-muted); margin-bottom: 0;">Entity JSON Content (Attributes)</label>
+                            <span style="font-size: 11px; color: var(--text-muted);">PartitionKey & RowKey are immutable during edit</span>
+                        </div>
+                        <textarea id="editTableEntityJson" class="code-editor-textarea" style="min-height: 200px; font-family: var(--font-code);" spellcheck="false" placeholder="JSON entity attributes..."></textarea>
+                    </div>
+                    <div id="editTableEntityError" style="display: none; color: #f87171; font-size: 12px;"></div>
+                </div>
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <button type="button" class="btn btn-neutral" onclick="closeModal('editTableEntityModal')">Cancel</button>
+                    <button type="submit" id="btnConfirmUpdateEntity" class="btn btn-primary" style="background-color: var(--warning); border-color: var(--warning); color: #000;">
+                        <i class="fa-solid fa-floppy-disk"></i>
+                        <span>Save Changes</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 2: Clone / Duplicate Entity Modal -->
+<div class="modal" id="cloneTableEntityModal">
+    <div class="modal-dialog modal-md" style="max-width: 580px; width: 100%;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="fa-solid fa-clone title-icon" style="color: var(--warning);"></i>
+                    <h3>Clone / Duplicate Entity</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('cloneTableEntityModal')">&times;</button>
+            </div>
+            <form id="cloneTableEntityForm" onsubmit="handleCloneTableEntitySubmit(event)">
+                <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                    <div style="display: flex; gap: 12px;">
+                        <div style="flex: 1;">
+                            <label class="form-label">Source PartitionKey</label>
+                            <input type="text" id="cloneSourcePK" class="form-control" readonly style="font-family: var(--font-code); font-size: 13px;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="form-label">Source RowKey</label>
+                            <input type="text" id="cloneSourceRK" class="form-control" readonly style="font-family: var(--font-code); font-size: 13px;">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 12px;">
+                        <div style="flex: 1;">
+                            <label class="form-label">New PartitionKey *</label>
+                            <input type="text" id="cloneNewPK" class="form-control" required style="font-family: var(--font-code); font-size: 13px;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="form-label">New RowKey *</label>
+                            <input type="text" id="cloneNewRK" class="form-control" required style="font-family: var(--font-code); font-size: 13px;">
+                        </div>
+                    </div>
+                    <div id="cloneTableEntityError" style="display: none; color: #f87171; font-size: 12px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-neutral" onclick="closeModal('cloneTableEntityModal')">Cancel</button>
+                    <button type="submit" id="btnConfirmCloneEntity" class="btn btn-primary" style="background-color: var(--warning); border-color: var(--warning); color: #000;">
+                        <i class="fa-solid fa-clone"></i>
+                        <span>Clone Entity</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 3: Copy / Move Entity to Another Table Modal -->
+<div class="modal" id="copyTableEntityModal">
+    <div class="modal-dialog modal-md" style="max-width: 580px; width: 100%;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="fa-solid fa-arrows-up-down-left-right title-icon" style="color: var(--warning);"></i>
+                    <h3>Copy / Move to Another Table</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('copyTableEntityModal')">&times;</button>
+            </div>
+            <form id="copyTableEntityForm" onsubmit="handleCopyTableEntitySubmit(event)">
+                <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                    <div style="display: flex; gap: 12px;">
+                        <div style="flex: 1;">
+                            <label class="form-label">PartitionKey</label>
+                            <input type="text" id="copyEntityPK" class="form-control" readonly style="font-family: var(--font-code); font-size: 13px;">
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="form-label">RowKey</label>
+                            <input type="text" id="copyEntityRK" class="form-control" readonly style="font-family: var(--font-code); font-size: 13px;">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="form-label">Destination Table</label>
+                        <select id="copyEntityDestTable" class="form-control db-select" style="width: 100%;">
+                            {% if all_tables %}
+                                {% for t in all_tables %}
+                                <option value="{{ t }}" {% if t == table_name %}selected{% endif %}>{{ t }}</option>
+                                {% endfor %}
+                            {% else %}
+                                <option value="{{ table_name }}">{{ table_name }}</option>
+                            {% endif %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label" style="font-size: 12px; color: var(--text-muted);">Operation Mode</label>
+                        <div style="display: flex; gap: 20px; align-items: center; margin-top: 4px;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: var(--text-normal);">
+                                <input type="radio" name="table_op_mode" value="copy" checked>
+                                <span><strong>Copy</strong> (Keep in current table)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: var(--text-normal);">
+                                <input type="radio" name="table_op_mode" value="move">
+                                <span><strong>Move</strong> (Delete from current table)</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div id="copyTableEntityError" style="display: none; color: #f87171; font-size: 12px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-neutral" onclick="closeModal('copyTableEntityModal')">Cancel</button>
+                    <button type="submit" id="btnConfirmCopyEntity" class="btn btn-primary" style="background-color: var(--warning); border-color: var(--warning); color: #000;">
+                        <i class="fa-solid fa-check"></i>
+                        <span>Apply</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 4: Delete Table Entity Confirmation Modal -->
+<div class="modal" id="deleteTableEntityModal">
+    <div class="modal-dialog modal-md" style="max-width: 480px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group text-danger">
+                    <i class="fa-solid fa-trash-can title-icon"></i>
+                    <h3>Delete Entity</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('deleteTableEntityModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                <p style="font-size: 13.5px; color: var(--text-normal); line-height: 1.5;">
+                    Are you sure you want to permanently delete entity with PartitionKey: <code id="deleteEntityPK" style="color: #f87171;"></code> and RowKey: <code id="deleteEntityRK" style="color: #f87171;"></code>?
+                </p>
+                <div style="padding: 10px 14px; background: rgba(239,68,68,0.08); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 12px; color: #fca5a5;">
+                    <i class="fa-solid fa-triangle-exclamation" style="margin-right: 4px;"></i> This operation cannot be undone.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-neutral" onclick="closeModal('deleteTableEntityModal')">Cancel</button>
+                <form id="deleteTableEntityForm" method="POST" action="{% if table_name %}{{ url_for('ui.delete_entity', table_name=table_name) }}{% endif %}" style="display: inline;">
+                    <input type="hidden" id="deleteEntityFormPK" name="pk" value="">
+                    <input type="hidden" id="deleteEntityFormRK" name="rk" value="">
+                    <button type="submit" class="btn btn-danger" style="display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-trash-can"></i>
+                        <span>Delete Entity</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}

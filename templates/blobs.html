@@ -99,17 +99,6 @@
                         <i class="fa-solid fa-cloud-arrow-up"></i> Upload Files
                     </button>
                 </form>
-
-                <!-- Create Folder Form -->
-                <form method="POST" action="{{ url_for('ui.create_blob_folder', container_name=container_name) }}" style="display: flex; align-items: center; gap: 8px;">
-                    <div class="input-icon-group">
-                        <i class="fa-solid fa-folder-plus icon-inside" style="font-size: 13px;"></i>
-                        <input type="text" name="folder" required placeholder="New folder name" style="width: 170px; padding-left: 36px;">
-                    </div>
-                    <button class="btn btn-neutral btn-sm" style="display: flex; align-items: center; gap: 4px;">
-                        <i class="fa-solid fa-folder-plus"></i> Create Folder
-                    </button>
-                </form>
             </div>
 
             <!-- Upload Progress Bar Container -->
@@ -173,13 +162,37 @@
                                 --
                             {% endif %}
                         </td>
-                        <!-- Actions (Only Edit) -->
-                        <td style="padding: 12px; text-align: center; display: flex; gap: 6px; justify-content: center;">
+                        <!-- Actions (3-Dot Dropdown) -->
+                        <td style="padding: 12px; text-align: center; position: relative;">
                             {% if not b.name.endswith('/') %}
-                            <!-- In-Browser Edit Button -->
-                            <button type="button" class="btn btn-neutral btn-sm" onclick="openEditBlobModal('{{ container_name }}', '{{ b.name }}')" style="padding: 4px 10px; font-size: 11px; display: flex; align-items: center; gap: 4px;" title="Edit File Content">
-                                <i class="fa-solid fa-pen-to-square"></i> Edit
-                            </button>
+                            <div class="action-dropdown">
+                                <button type="button" class="action-dropdown-btn" onclick="toggleActionDropdown(event, this)" title="Actions">
+                                    <i class="fa-solid fa-ellipsis-vertical"></i>
+                                </button>
+                                <div class="action-dropdown-menu">
+                                    <button type="button" class="action-dropdown-item" onclick="openEditBlobModal('{{ container_name }}', '{{ b.name }}')">
+                                        <i class="fa-solid fa-pen-to-square"></i>
+                                        <span>Edit</span>
+                                    </button>
+                                    <button type="button" class="action-dropdown-item" onclick="openRenameBlobModal('{{ container_name }}', '{{ b.name }}')">
+                                        <i class="fa-solid fa-i-cursor"></i>
+                                        <span>Rename</span>
+                                    </button>
+                                    <button type="button" class="action-dropdown-item" onclick="openMoveBlobModal('{{ container_name }}', '{{ b.name }}')">
+                                        <i class="fa-solid fa-arrows-up-down-left-right"></i>
+                                        <span>Move / Copy</span>
+                                    </button>
+                                    <a href="{{ url_for('ui.download_blob', container_name=container_name, blob_name=b.name) }}" class="action-dropdown-item">
+                                        <i class="fa-solid fa-download"></i>
+                                        <span>Download</span>
+                                    </a>
+                                    <div class="action-dropdown-divider"></div>
+                                    <button type="button" class="action-dropdown-item danger" onclick="openDeleteSingleBlobModal('{{ container_name }}', '{{ b.name }}')">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                        <span>Delete</span>
+                                    </button>
+                                </div>
+                            </div>
                             {% else %}
                             <span style="color: var(--text-muted); font-size: 11px;">--</span>
                             {% endif %}
@@ -450,6 +463,134 @@
                     <button type="submit" class="btn btn-danger" style="display: flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-trash-can"></i>
                         <span>Yes, Delete Container</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 5: Rename Blob Modal -->
+<div class="modal" id="renameBlobModal">
+    <div class="modal-dialog modal-md" style="max-width: 580px; width: 100%;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="fa-solid fa-i-cursor title-icon"></i>
+                    <h3>Rename Blob</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('renameBlobModal')">&times;</button>
+            </div>
+            <form id="renameBlobForm" onsubmit="handleRenameBlobSubmit(event)">
+                <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                    <div>
+                        <label class="form-label">Current Blob Name</label>
+                        <input type="text" id="renameBlobOldName" class="form-control" readonly style="font-family: var(--font-code); font-size: 13px;">
+                    </div>
+                    <div>
+                        <label class="form-label">New Blob Name / Path</label>
+                        <input type="text" id="renameBlobNewName" class="form-control" required style="font-family: var(--font-code); font-size: 13px;">
+                    </div>
+                    <div id="renameBlobError" style="display: none; color: #f87171; font-size: 12px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-neutral" onclick="closeModal('renameBlobModal')">Cancel</button>
+                    <button type="submit" id="btnConfirmRenameBlob" class="btn btn-primary">
+                        <i class="fa-solid fa-check"></i>
+                        <span>Rename Blob</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 6: Move / Copy Blob Modal -->
+<div class="modal" id="moveBlobModal">
+    <div class="modal-dialog modal-md" style="max-width: 580px; width: 100%;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="fa-solid fa-arrows-up-down-left-right title-icon"></i>
+                    <h3>Move or Copy Blob</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('moveBlobModal')">&times;</button>
+            </div>
+            <form id="moveBlobForm" onsubmit="handleMoveBlobSubmit(event)">
+                <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                    <div>
+                        <label class="form-label">Source Blob</label>
+                        <input type="text" id="moveBlobSourceName" class="form-control" readonly style="font-family: var(--font-code); font-size: 13px;">
+                    </div>
+                    <div>
+                        <label class="form-label">Destination Container</label>
+                        <select id="moveBlobDestContainer" class="form-control db-select" style="width: 100%;">
+                            {% if all_containers %}
+                                {% for c in all_containers %}
+                                <option value="{{ c }}" {% if c == container_name %}selected{% endif %}>{{ c }}</option>
+                                {% endfor %}
+                            {% else %}
+                                <option value="{{ container_name }}">{{ container_name }}</option>
+                            {% endif %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label">Destination Path / Name</label>
+                        <input type="text" id="moveBlobDestPath" class="form-control" required style="font-family: var(--font-code); font-size: 13px;">
+                    </div>
+                    <div>
+                        <label class="form-label" style="font-size: 12px; color: var(--text-muted);">Operation Mode</label>
+                        <div style="display: flex; gap: 20px; align-items: center; margin-top: 4px;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: var(--text-normal);">
+                                <input type="radio" name="blob_op_mode" value="move" checked>
+                                <span><strong>Move</strong> (Transfer and delete source)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: var(--text-normal);">
+                                <input type="radio" name="blob_op_mode" value="copy">
+                                <span><strong>Copy</strong> (Keep source intact)</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div id="moveBlobError" style="display: none; color: #f87171; font-size: 12px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-neutral" onclick="closeModal('moveBlobModal')">Cancel</button>
+                    <button type="submit" id="btnConfirmMoveBlob" class="btn btn-primary">
+                        <i class="fa-solid fa-check"></i>
+                        <span>Apply</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 7: Delete Single Blob Confirmation Modal -->
+<div class="modal" id="deleteSingleBlobModal">
+    <div class="modal-dialog modal-md" style="max-width: 480px;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group text-danger">
+                    <i class="fa-solid fa-trash-can title-icon"></i>
+                    <h3>Delete Blob</h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('deleteSingleBlobModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                <p style="font-size: 13.5px; color: var(--text-normal); line-height: 1.5;">
+                    Are you sure you want to permanently delete blob <strong id="deleteSingleBlobName" style="color: #ef4444; font-family: var(--font-code); word-break: break-all;"></strong>?
+                </p>
+                <div style="padding: 10px 14px; background: rgba(239,68,68,0.08); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 12px; color: #fca5a5;">
+                    <i class="fa-solid fa-triangle-exclamation" style="margin-right: 4px;"></i> This operation cannot be undone.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-neutral" onclick="closeModal('deleteSingleBlobModal')">Cancel</button>
+                <form id="deleteSingleBlobForm" method="POST" action="{{ url_for('ui.delete_blob', container_name=container_name) }}" style="display: inline;">
+                    <input type="hidden" id="deleteSingleBlobInput" name="blob_name" value="">
+                    <button type="submit" class="btn btn-danger" style="display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-trash-can"></i>
+                        <span>Delete Blob</span>
                     </button>
                 </form>
             </div>

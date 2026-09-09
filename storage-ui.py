@@ -17,7 +17,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.storage.fileshare import ShareServiceClient
 from azure.storage.queue import QueueServiceClient
-from azure.data.tables import TableServiceClient, TableEntity
+from azure.data.tables import TableServiceClient, TableEntity, UpdateMode
 from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
 
 # -----------------------
@@ -472,11 +472,17 @@ def view_blobs(container_name):
     page_end = min(end_idx, total_items)
 
     tree = load_sidebar_tree()
+    try:
+        all_containers = [c.name for c in get_blob_service().list_containers()]
+    except Exception:
+        all_containers = [container_name]
+
     return render_template(
         'blobs.html',
         blobs=page_blobs,
         all_blobs_count=len(raw_blobs),
         container_name=container_name,
+        all_containers=all_containers,
         sidebar_tree=tree,
         active_service='blobs',
         active_item=container_name,
@@ -756,6 +762,57 @@ def empty_container(container_name):
     except Exception as e:
         flash(f"Error emptying container: {e}")
         
+@ui.route('/blobs/<container_name>/rename', methods=['POST'])
+def rename_blob(container_name):
+    if not require_auth():
+        if request.is_json: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        return redirect(url_for('ui.login'))
+    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    data = request.get_json(silent=True) if request.is_json else request.form
+    old_name = data.get('old_name') or ''
+    new_name = data.get('new_name') or ''
+    if not old_name or not new_name:
+        msg = "Source and target blob names are required."
+        return jsonify({'success': False, 'error': msg}) if is_ajax else (flash(msg), redirect(url_for('ui.view_blobs', container_name=container_name)))
+    try:
+        client = get_blob_service().get_container_client(container_name)
+        source_blob = client.get_blob_client(old_name)
+        dest_blob = client.get_blob_client(new_name)
+        dest_blob.start_copy_from_url(source_blob.url)
+        source_blob.delete_blob()
+        if is_ajax: return jsonify({'success': True})
+        flash(f"Blob renamed from '{old_name}' to '{new_name}'")
+    except Exception as e:
+        if is_ajax: return jsonify({'success': False, 'error': str(e)})
+        flash(f"Rename failed: {e}")
+    return redirect(url_for('ui.view_blobs', container_name=container_name))
+
+@ui.route('/blobs/<container_name>/move-copy', methods=['POST'])
+def move_copy_blob(container_name):
+    if not require_auth():
+        if request.is_json: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        return redirect(url_for('ui.login'))
+    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    data = request.get_json(silent=True) if request.is_json else request.form
+    blob_name = data.get('blob_name') or ''
+    dest_container = data.get('dest_container') or container_name
+    dest_blob_name = data.get('dest_blob_name') or blob_name
+    action_type = data.get('action_type', 'move')
+    if not blob_name or not dest_container or not dest_blob_name:
+        msg = "Blob name and destination details are required."
+        return jsonify({'success': False, 'error': msg}) if is_ajax else (flash(msg), redirect(url_for('ui.view_blobs', container_name=container_name)))
+    try:
+        svc = get_blob_service()
+        source_blob = svc.get_blob_client(container=container_name, blob=blob_name)
+        dest_blob = svc.get_blob_client(container=dest_container, blob=dest_blob_name)
+        dest_blob.start_copy_from_url(source_blob.url)
+        if action_type == 'move':
+            source_blob.delete_blob()
+        if is_ajax: return jsonify({'success': True})
+        flash(f"Blob '{blob_name}' {'moved' if action_type == 'move' else 'copied'} to '{dest_container}/{dest_blob_name}'")
+    except Exception as e:
+        if is_ajax: return jsonify({'success': False, 'error': str(e)})
+        flash(f"Move/Copy failed: {e}")
     return redirect(url_for('ui.view_blobs', container_name=container_name))
 
 # -----------------------
@@ -841,7 +898,12 @@ def list_files(share):
         items = []
         
     tree = load_sidebar_tree()
-    return render_template('fileshares.html', share=share, items=items, sidebar_tree=tree, active_service='fileshares', active_item=share)
+    try:
+        all_shares = [s.name for s in get_share_service().list_shares()]
+    except Exception:
+        all_shares = [share]
+
+    return render_template('fileshares.html', share=share, items=items, all_shares=all_shares, sidebar_tree=tree, active_service='fileshares', active_item=share)
 
 @ui.route('/fileshares/<share>/upload', methods=['POST'])
 def upload_file(share):
@@ -894,6 +956,98 @@ def download_file(share):
     except Exception as e:
         flash(f"Download failed: {e}")
         return redirect(url_for('ui.list_files', share=share))
+
+@ui.route('/fileshares/<share>/file-content')
+def get_share_file_content(share):
+    if not require_auth():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    filename = request.args.get('filename')
+    if not filename:
+        return jsonify({'success': False, 'error': 'Filename is required'}), 400
+    try:
+        client = get_share_service().get_share_client(share).get_file_client(filename)
+        stream = client.download_file()
+        raw_data = stream.readall()
+        try:
+            text = raw_data.decode('utf-8')
+            is_text = True
+        except Exception:
+            text = str(raw_data[:2000])
+            is_text = False
+        return jsonify({'success': True, 'content': text, 'is_text': is_text, 'filename': filename})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@ui.route('/fileshares/<share>/save-content', methods=['POST'])
+def save_share_file_content(share):
+    if not require_auth():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    data = request.get_json(silent=True) if request.is_json else request.form
+    filename = data.get('filename')
+    content = data.get('content', '')
+    if not filename:
+        return jsonify({'success': False, 'error': 'Filename is required'}), 400
+    try:
+        client = get_share_service().get_share_client(share).get_file_client(filename)
+        raw_bytes = content.encode('utf-8')
+        client.create_file(size=len(raw_bytes))
+        client.upload_file(raw_bytes)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@ui.route('/fileshares/<share>/rename-file', methods=['POST'])
+def rename_share_file(share):
+    if not require_auth():
+        if request.is_json: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        return redirect(url_for('ui.login'))
+    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    data = request.get_json(silent=True) if request.is_json else request.form
+    old_name = data.get('old_name') or ''
+    new_name = data.get('new_name') or ''
+    if not old_name or not new_name:
+        msg = "Old and new filenames are required."
+        return jsonify({'success': False, 'error': msg}) if is_ajax else (flash(msg), redirect(url_for('ui.list_files', share=share)))
+    try:
+        share_client = get_share_service().get_share_client(share)
+        source_file = share_client.get_file_client(old_name)
+        dest_file = share_client.get_file_client(new_name)
+        dest_file.start_copy_from_url(source_file.url)
+        source_file.delete_file()
+        if is_ajax: return jsonify({'success': True})
+        flash(f"File renamed from '{old_name}' to '{new_name}'")
+    except Exception as e:
+        if is_ajax: return jsonify({'success': False, 'error': str(e)})
+        flash(f"Rename failed: {e}")
+    return redirect(url_for('ui.list_files', share=share))
+
+@ui.route('/fileshares/<share>/move-copy-file', methods=['POST'])
+def move_copy_share_file(share):
+    if not require_auth():
+        if request.is_json: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        return redirect(url_for('ui.login'))
+    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    data = request.get_json(silent=True) if request.is_json else request.form
+    filename = data.get('filename') or ''
+    dest_share = data.get('dest_share') or share
+    dest_filename = data.get('dest_filename') or filename
+    action_type = data.get('action_type', 'move')
+    if not filename or not dest_share or not dest_filename:
+        msg = "Filename and destination details are required."
+        return jsonify({'success': False, 'error': msg}) if is_ajax else (flash(msg), redirect(url_for('ui.list_files', share=share)))
+    try:
+        svc = get_share_service()
+        source_file = svc.get_share_client(share).get_file_client(filename)
+        dest_file = svc.get_share_client(dest_share).get_file_client(dest_filename)
+        dest_file.start_copy_from_url(source_file.url)
+        if action_type == 'move':
+            source_file.delete_file()
+        if is_ajax: return jsonify({'success': True})
+        flash(f"File '{filename}' {'moved' if action_type == 'move' else 'copied'} to '{dest_share}/{dest_filename}'")
+    except Exception as e:
+        if is_ajax: return jsonify({'success': False, 'error': str(e)})
+        flash(f"Move/Copy failed: {e}")
+    return redirect(url_for('ui.list_files', share=share))
 
 @ui.route('/fileshares/<share>/delete', methods=['POST'])
 def delete_file(share):
@@ -1439,7 +1593,11 @@ def view_table(table_name):
         return redirect(url_for('ui.tables'))
 
     tree = load_sidebar_tree()
-    return render_template('tables.html', entities=entities, table_name=table_name, sidebar_tree=tree, active_service='tables', active_item=table_name)
+    try:
+        all_tables = [t.name if hasattr(t, "name") else str(t) for t in get_table_service().list_tables()]
+    except Exception:
+        all_tables = [table_name]
+    return render_template('tables.html', entities=entities, table_name=table_name, all_tables=all_tables, sidebar_tree=tree, active_service='tables', active_item=table_name)
 
 @ui.route('/tables/<table_name>/add', methods=['POST'])
 def add_entity(table_name):
@@ -1460,6 +1618,109 @@ def add_entity(table_name):
     except Exception as e:
         flash(f"Insert failed: {e}")
     return redirect(url_for('ui.view_table', table_name=table_name))
+
+@ui.route('/tables/<table_name>/entity-content', methods=['GET'])
+def get_table_entity_content(table_name):
+    if not require_auth():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    pk = request.args.get('pk')
+    rk = request.args.get('rk')
+    if not pk or not rk:
+        return jsonify({'success': False, 'error': 'PartitionKey and RowKey are required.'}), 400
+    try:
+        client = get_table_service().get_table_client(table_name)
+        entity = client.get_entity(partition_key=pk, row_key=rk)
+        clean_entity = {}
+        for k, v in entity.items():
+            if isinstance(v, datetime):
+                clean_entity[k] = v.isoformat()
+            else:
+                clean_entity[k] = v
+        return jsonify({'success': True, 'entity': clean_entity})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@ui.route('/tables/<table_name>/update-entity', methods=['POST'])
+def update_table_entity(table_name):
+    if not require_auth():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    data = request.get_json(silent=True) or request.form
+    pk = data.get('pk') or data.get('PartitionKey')
+    rk = data.get('rk') or data.get('RowKey')
+    entity_data = data.get('entity') or {}
+    
+    if not pk or not rk:
+        return jsonify({'success': False, 'error': 'PartitionKey and RowKey are required.'}), 400
+    
+    try:
+        client = get_table_service().get_table_client(table_name)
+        if isinstance(entity_data, str):
+            entity_data = json.loads(entity_data)
+        
+        new_entity = {k: v for k, v in entity_data.items() if k not in ['odata.etag', 'etag', 'Timestamp']}
+        new_entity['PartitionKey'] = pk
+        new_entity['RowKey'] = rk
+        
+        client.upsert_entity(entity=new_entity, mode=UpdateMode.REPLACE)
+        return jsonify({'success': True, 'message': 'Entity updated successfully.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@ui.route('/tables/<table_name>/clone-entity', methods=['POST'])
+def clone_table_entity(table_name):
+    if not require_auth():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    data = request.get_json(silent=True) or request.form
+    src_pk = data.get('source_pk')
+    src_rk = data.get('source_rk')
+    new_pk = data.get('new_pk')
+    new_rk = data.get('new_rk')
+    
+    if not src_pk or not src_rk or not new_pk or not new_rk:
+        return jsonify({'success': False, 'error': 'Source and target PartitionKey and RowKey are required.'}), 400
+        
+    try:
+        client = get_table_service().get_table_client(table_name)
+        source_ent = client.get_entity(partition_key=src_pk, row_key=src_rk)
+        new_ent = {k: v for k, v in source_ent.items() if k not in ['odata.etag', 'etag', 'Timestamp']}
+        new_ent['PartitionKey'] = new_pk
+        new_ent['RowKey'] = new_rk
+        
+        client.create_entity(new_ent)
+        return jsonify({'success': True, 'message': f"Cloned entity to PartitionKey='{new_pk}', RowKey='{new_rk}'."})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+@ui.route('/tables/<table_name>/copy-entity', methods=['POST'])
+def copy_table_entity(table_name):
+    if not require_auth():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    data = request.get_json(silent=True) or request.form
+    pk = data.get('pk')
+    rk = data.get('rk')
+    dest_table = data.get('dest_table')
+    action_type = data.get('action_type', 'copy') # 'move' or 'copy'
+    
+    if not pk or not rk or not dest_table:
+        return jsonify({'success': False, 'error': 'PartitionKey, RowKey and destination table name are required.'}), 400
+        
+    try:
+        svc = get_table_service()
+        src_client = svc.get_table_client(table_name)
+        dest_client = svc.get_table_client(dest_table)
+        
+        source_ent = src_client.get_entity(partition_key=pk, row_key=rk)
+        new_ent = {k: v for k, v in source_ent.items() if k not in ['odata.etag', 'etag', 'Timestamp']}
+        new_ent['PartitionKey'] = pk
+        new_ent['RowKey'] = rk
+        
+        dest_client.upsert_entity(entity=new_ent, mode=UpdateMode.REPLACE)
+        if action_type == 'move':
+            src_client.delete_entity(partition_key=pk, row_key=rk)
+            
+        return jsonify({'success': True, 'message': f"Entity successfully {'moved' if action_type == 'move' else 'copied'} to table '{dest_table}'."})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 @ui.route('/tables/<table_name>/delete', methods=['POST'])
 def delete_entity(table_name):

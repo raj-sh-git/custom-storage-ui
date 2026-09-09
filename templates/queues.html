@@ -133,15 +133,13 @@
                                 </div>
                             </div>
                             <div class="queue-msg-preview-box"><code id="queue-preview-{{ loop.index }}">{{ m.raw_preview|trim }}</code></div>
-                            {% if (m.decoded_content|length > 120) or (m.raw_content|length > 120) %}
-                                <button type="button" id="queue-expand-{{ loop.index }}" class="btn btn-link btn-sm p-0"
-                                        style="text-decoration:none; color: var(--accent-blue); font-size: 11px; border: none; background: transparent; cursor: pointer; margin-top: 4px; display: inline-block;"
-                                        onclick="toggleQueueMsgExpand({{ loop.index }})">
-                                    Show Full ▼
-                                </button>
-                                <pre id="queue-full-{{ loop.index }}"
-                                     style="display: none; white-space: pre-wrap; word-break: break-all; font-family: var(--font-code); border: 1px solid var(--border-color); padding: 10px; background-color: rgba(0,0,0,0.3); border-radius: 6px; font-size: 12px; margin-top: 6px; max-height: 220px; overflow-y: auto;">{{ m.raw_content }}</pre>
-                            {% endif %}
+                            <button type="button" id="queue-expand-{{ loop.index }}" class="btn btn-link btn-sm p-0"
+                                    style="text-decoration:none; color: var(--accent-blue); font-size: 11px; border: none; background: transparent; cursor: pointer; margin-top: 4px; display: inline-block;"
+                                    onclick="toggleQueueMsgExpand({{ loop.index }})">
+                                Show Full ▼
+                            </button>
+                            <pre id="queue-full-{{ loop.index }}"
+                                 style="display: none; white-space: pre-wrap; word-break: break-all; font-family: var(--font-code); border: 1px solid var(--border-color); padding: 10px; background-color: rgba(0,0,0,0.3); border-radius: 6px; font-size: 12px; margin-top: 6px; max-height: 220px; overflow-y: auto;">{{ m.raw_content }}</pre>
                         </td>
                         <!-- Insertion Time -->
                         <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap;">
@@ -159,21 +157,35 @@
                         <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap;">
                             {{ m.expiration_time_str }}
                         </td>
-                        <!-- Actions -->
-                        <td style="padding: 12px; text-align: center;">
-                            <div style="display: flex; gap: 6px; justify-content: center; align-items: center;">
-                                <!-- Edit Message -->
-                                <button type="button" class="btn btn-neutral btn-sm" onclick="openEditQueueMsgModal('{{ queue }}', '{{ m.id }}')" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;" title="View & Edit message payload">
-                                    <i class="fa-solid fa-pen-to-square"></i> Edit
+                        <!-- Actions (3-Dot Dropdown) -->
+                        <td style="padding: 12px; text-align: center; position: relative;">
+                            <div class="action-dropdown">
+                                <button type="button" class="action-dropdown-btn" onclick="toggleActionDropdown(event, this)" title="Actions">
+                                    <i class="fa-solid fa-ellipsis-vertical"></i>
                                 </button>
-                                <!-- Send / Move to Another Queue -->
-                                <button type="button" class="btn btn-neutral btn-sm" onclick="openSendToQueueModal('{{ queue }}', '{{ m.id }}')" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;" title="Send or move to another queue">
-                                    <i class="fa-solid fa-paper-plane" style="color: var(--accent-blue);"></i> Send
-                                </button>
-                                <!-- Dequeue Single (Trash Icon) -->
-                                <button type="button" class="btn btn-danger btn-sm" onclick="openSingleDequeueModal('{{ queue }}', '{{ m.id }}')" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; justify-content: center;" title="Dequeue and delete message">
-                                    <i class="fa-solid fa-trash-can"></i>
-                                </button>
+                                <div class="action-dropdown-menu">
+                                    <button type="button" class="action-dropdown-item" onclick="openEditQueueMsgModal('{{ queue }}', '{{ m.id }}')">
+                                        <i class="fa-solid fa-pen-to-square"></i>
+                                        <span>Edit Message</span>
+                                    </button>
+                                    <button type="button" class="action-dropdown-item" onclick="openSendToQueueModal('{{ queue }}', '{{ m.id }}')">
+                                        <i class="fa-solid fa-paper-plane" style="color: var(--accent-blue);"></i>
+                                        <span>Send / Move to Queue</span>
+                                    </button>
+                                    <button type="button" class="action-dropdown-item" onclick="copyQueueMsgPayload({{ loop.index }})">
+                                        <i class="fa-solid fa-copy"></i>
+                                        <span>Copy Payload</span>
+                                    </button>
+                                    <button type="button" class="action-dropdown-item" onclick="copyTextToClipboard('{{ m.id }}', 'Message ID copied to clipboard!')">
+                                        <i class="fa-solid fa-fingerprint"></i>
+                                        <span>Copy Message ID</span>
+                                    </button>
+                                    <div class="action-dropdown-divider"></div>
+                                    <button type="button" class="action-dropdown-item danger" onclick="openSingleDequeueModal('{{ queue }}', '{{ m.id }}')">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                        <span>Dequeue (Delete)</span>
+                                    </button>
+                                </div>
                             </div>
                         </td>
                     </tr>
