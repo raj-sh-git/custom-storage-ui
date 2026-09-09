@@ -44,8 +44,12 @@
             <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Name</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px;">Type</th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600;" title="Click to sort by Name">
+                            <span class="th-content">Name <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px;" title="Click to sort by Type">
+                            <span class="th-content">Type <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
                         <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
@@ -53,14 +57,14 @@
                 {% if items %}
                     {% for i in items %}
                     <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
-                        <td style="padding: 12px; color: var(--text-normal); word-break: break-all;">
+                        <td data-sort-val="{{ i.name }}" style="padding: 12px; color: var(--text-normal); word-break: break-all;">
                             {% if i.is_directory %}
                                 <i class="fa-solid fa-folder" style="color: var(--warning); margin-right: 6px;"></i> <strong>{{ i.name }}</strong>
                             {% else %}
                                 <i class="fa-solid fa-file" style="color: var(--text-muted); margin-right: 6px;"></i> {{ i.name }}
                             {% endif %}
                         </td>
-                        <td style="padding: 12px; color: var(--text-muted);">
+                        <td data-sort-val="{{ 'Directory' if i.is_directory else 'File' }}" style="padding: 12px; color: var(--text-muted);">
                             {{ 'Directory' if i.is_directory else 'File' }}
                         </td>
                         <td style="padding: 12px; text-align: center; position: relative;">
@@ -139,7 +143,9 @@
             <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Share Name</th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600;" title="Click to sort by Share Name">
+                            <span class="th-content">Share Name <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
                         <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
@@ -147,7 +153,7 @@
                 {% if shares %}
                     {% for s in shares %}
                     <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
-                        <td style="padding: 12px; font-weight: 500; color: var(--text-white);">
+                        <td data-sort-val="{{ s.name }}" style="padding: 12px; font-weight: 500; color: var(--text-white);">
                             <i class="fa-solid fa-server" style="color: var(--accent-purple); margin-right: 8px;"></i>
                             {{ s.name }}
                         </td>

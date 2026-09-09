@@ -434,7 +434,7 @@ def view_blobs(container_name):
 
         return redirect(url_for('ui.view_blobs', container_name=container_name))
 
-    # Pagination & Search parameters
+    # Pagination & Search & Sort parameters
     search_query = request.args.get('q', '').strip()
     try:
         page = max(1, int(request.args.get('page', 1)))
@@ -446,6 +446,13 @@ def view_blobs(container_name):
             limit = 20
     except ValueError:
         limit = 20
+
+    sort_by = request.args.get('sort', 'name').strip().lower()
+    if sort_by not in ['name', 'size', 'last_modified']:
+        sort_by = 'name'
+    sort_order = request.args.get('order', 'asc').strip().lower()
+    if sort_order not in ['asc', 'desc']:
+        sort_order = 'asc'
 
     # List blobs
     try:
@@ -459,6 +466,23 @@ def view_blobs(container_name):
         filtered_blobs = [b for b in raw_blobs if search_query.lower() in b.name.lower()]
     else:
         filtered_blobs = raw_blobs
+
+    # Global Sort before pagination
+    reverse = (sort_order == 'desc')
+    if sort_by == 'last_modified':
+        def get_blob_last_modified_ts(b):
+            lm = getattr(b, 'last_modified', None)
+            if lm:
+                try:
+                    return lm.timestamp()
+                except Exception:
+                    return 0
+            return 0
+        filtered_blobs.sort(key=get_blob_last_modified_ts, reverse=reverse)
+    elif sort_by == 'size':
+        filtered_blobs.sort(key=lambda b: getattr(b, 'size', 0) or 0, reverse=reverse)
+    else:
+        filtered_blobs.sort(key=lambda b: (getattr(b, 'name', '') or '').lower(), reverse=reverse)
 
     total_items = len(filtered_blobs)
     total_pages = max(1, math.ceil(total_items / limit))
@@ -492,7 +516,9 @@ def view_blobs(container_name):
         total_items=total_items,
         page_start=page_start,
         page_end=page_end,
-        search_query=search_query
+        search_query=search_query,
+        sort_by=sort_by,
+        sort_order=sort_order
     )
 
 @ui.route('/blobs/<container_name>/delete-multiple', methods=['POST'])

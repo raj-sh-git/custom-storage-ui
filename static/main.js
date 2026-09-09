@@ -2198,3 +2198,110 @@ function openDeleteTableEntityModal(tableName, pk, rk) {
     openModal('deleteTableEntityModal');
 }
 
+// --- Table Column Sorting ---
+function sortTable(th) {
+    if (!th) return;
+    const table = th.closest('table');
+    if (!table) return;
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+
+    // Get column index
+    const thRow = th.parentElement;
+    const thList = Array.from(thRow.children);
+    const colIndex = thList.indexOf(th);
+    if (colIndex === -1) return;
+
+    const sortType = th.getAttribute('data-sort-type') || 'text';
+    const isAsc = th.classList.contains('sorted-asc');
+    const newOrder = isAsc ? 'desc' : 'asc';
+
+    // Reset all headers in this table
+    thList.forEach(otherTh => {
+        if (otherTh.classList.contains('sortable-th')) {
+            otherTh.classList.remove('sorted-asc', 'sorted-desc');
+            otherTh.setAttribute('aria-sort', 'none');
+            const icon = otherTh.querySelector('.sort-icon');
+            if (icon) {
+                icon.className = 'fa-solid fa-sort sort-icon';
+            }
+        }
+    });
+
+    // Apply active class & icon
+    th.classList.add(newOrder === 'asc' ? 'sorted-asc' : 'sorted-desc');
+    th.setAttribute('aria-sort', newOrder === 'asc' ? 'ascending' : 'descending');
+    const icon = th.querySelector('.sort-icon');
+    if (icon) {
+        icon.className = newOrder === 'asc' ? 'fa-solid fa-arrow-up sort-icon' : 'fa-solid fa-arrow-down sort-icon';
+    }
+
+    // Get rows to sort (skip empty-state / no-result rows)
+    const allRows = Array.from(tbody.querySelectorAll('tr'));
+    const rowsToSort = [];
+    const specialRows = [];
+
+    allRows.forEach(row => {
+        const firstTd = row.querySelector('td');
+        if (row.id.startsWith('no') || (firstTd && firstTd.colSpan > 1)) {
+            specialRows.push(row);
+        } else {
+            rowsToSort.push(row);
+        }
+    });
+
+    if (rowsToSort.length <= 1) return;
+
+    // Sort rows
+    rowsToSort.sort((rowA, rowB) => {
+        const cellA = rowA.children[colIndex];
+        const cellB = rowB.children[colIndex];
+        if (!cellA || !cellB) return 0;
+
+        let valA = cellA.getAttribute('data-sort-val');
+        if (valA === null) valA = cellA.innerText.trim();
+
+        let valB = cellB.getAttribute('data-sort-val');
+        if (valB === null) valB = cellB.innerText.trim();
+
+        let cmp = 0;
+        if (sortType === 'number') {
+            const numA = parseFloat(valA) || 0;
+            const numB = parseFloat(valB) || 0;
+            cmp = numA - numB;
+        } else if (sortType === 'date') {
+            const dateA = Date.parse(valA) || 0;
+            const dateB = Date.parse(valB) || 0;
+            cmp = dateA - dateB;
+        } else {
+            cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+        }
+
+        return newOrder === 'asc' ? cmp : -cmp;
+    });
+
+    // Re-append sorted rows and special rows
+    const fragment = document.createDocumentFragment();
+    rowsToSort.forEach(row => fragment.appendChild(row));
+    specialRows.forEach(row => fragment.appendChild(row));
+    tbody.appendChild(fragment);
+}
+
+function navigateToBlobSort(sortField) {
+    const url = new URL(window.location.href);
+    const currentSort = url.searchParams.get('sort') || 'name';
+    const currentOrder = url.searchParams.get('order') || 'asc';
+
+    let newOrder = 'asc';
+    if (currentSort === sortField) {
+        newOrder = (currentOrder === 'asc') ? 'desc' : 'asc';
+    }
+
+    url.searchParams.set('sort', sortField);
+    url.searchParams.set('order', newOrder);
+    url.searchParams.set('page', '1');
+    window.location.href = url.toString();
+}
+
+
+

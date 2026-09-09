@@ -86,11 +86,21 @@
                         <th style="padding: 10px 8px; width: 38px; text-align: center; vertical-align: top;">
                             <input type="checkbox" id="selectAllQueueMsgs" class="table-checkbox" onchange="toggleSelectAllQueueMsgs(this)" title="Select all messages">
                         </th>
-                        <th style="padding: 10px 10px; color: var(--text-white); font-weight: 600; width: 170px; vertical-align: top;">Message ID</th>
-                        <th style="padding: 10px 12px; color: var(--text-white); font-weight: 600; vertical-align: top;">Message Content & Format</th>
-                        <th style="padding: 10px 8px; color: var(--text-white); font-weight: 600; width: 135px; text-align: center; vertical-align: top;">Insertion Time</th>
-                        <th style="padding: 10px 6px; color: var(--text-white); font-weight: 600; width: 85px; text-align: center; vertical-align: top;">Dequeue Count</th>
-                        <th style="padding: 10px 8px; color: var(--text-white); font-weight: 600; width: 135px; text-align: center; vertical-align: top;">Expiration Time</th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 10px 10px; color: var(--text-white); font-weight: 600; width: 170px; vertical-align: top;" title="Click to sort by Message ID">
+                            <span class="th-content">Message ID <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 10px 12px; color: var(--text-white); font-weight: 600; vertical-align: top;" title="Click to sort by Content">
+                            <span class="th-content">Message Content & Format <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
+                        <th class="sortable-th th-center" data-sort-type="date" onclick="sortTable(this)" style="padding: 10px 8px; color: var(--text-white); font-weight: 600; width: 135px; text-align: center; vertical-align: top;" title="Click to sort by Insertion Time">
+                            <span class="th-content">Insertion Time <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
+                        <th class="sortable-th th-center" data-sort-type="number" onclick="sortTable(this)" style="padding: 10px 6px; color: var(--text-white); font-weight: 600; width: 85px; text-align: center; vertical-align: top;" title="Click to sort by Dequeue Count">
+                            <span class="th-content">Dequeue <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
+                        <th class="sortable-th th-center" data-sort-type="date" onclick="sortTable(this)" style="padding: 10px 8px; color: var(--text-white); font-weight: 600; width: 135px; text-align: center; vertical-align: top;" title="Click to sort by Expiration Time">
+                            <span class="th-content">Expiration Time <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
                         <th style="padding: 10px 6px; color: var(--text-white); font-weight: 600; width: 75px; text-align: center; vertical-align: top;">Actions</th>
                     </tr>
                 </thead>
@@ -103,11 +113,11 @@
                             <input type="checkbox" class="queue-msg-checkbox table-checkbox" data-id="{{ m.id }}" onchange="updateQueueMsgSelection()">
                         </td>
                         <!-- Message ID -->
-                        <td style="padding: 10px 10px; font-family: var(--font-code); color: var(--text-muted); font-size: 11.5px; word-break: break-all; overflow-wrap: anywhere; vertical-align: top;">
+                        <td data-sort-val="{{ m.id }}" style="padding: 10px 10px; font-family: var(--font-code); color: var(--text-muted); font-size: 11.5px; word-break: break-all; overflow-wrap: anywhere; vertical-align: top;">
                             <i class="fa-solid fa-envelope" style="color: var(--accent-blue); margin-right: 4px;"></i>{{ m.id }}
                         </td>
                         <!-- Content Preview & Encoding Pill Switcher with Show Full Button -->
-                        <td style="padding: 10px 12px; color: var(--text-normal); word-break: break-all; overflow-wrap: anywhere; vertical-align: top; overflow: hidden;">
+                        <td data-sort-val="{{ m.raw_content or m.decoded_content or '' }}" style="padding: 10px 12px; color: var(--text-normal); word-break: break-all; overflow-wrap: anywhere; vertical-align: top; overflow: hidden;">
                             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
                                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                                     {% if m.is_base64 %}
@@ -126,7 +136,7 @@
                                         </div>
                                     {% else %}
                                         <span class="badge badge-neutral font-mono" style="white-space: nowrap; flex-shrink: 0;" title="Plain Text / Raw UTF-8">
-                                            <i class="fa-solid fa-font" style="margin-right: 4px;"></i>Plain Text
+                                             <i class="fa-solid fa-font" style="margin-right: 4px;"></i>Plain Text
                                         </span>
                                     {% endif %}
                                     <script id="queue-msg-data-{{ loop.index }}" type="application/json">{"decoded": {{ m.decoded_content|tojson|safe }}, "raw": {{ m.raw_content|tojson|safe }}}</script>
@@ -145,11 +155,11 @@
                             </div>
                         </td>
                         <!-- Insertion Time -->
-                        <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap; vertical-align: top;">
+                        <td data-sort-val="{{ m.insertion_time_str }}" style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap; vertical-align: top;">
                             {{ m.insertion_time_str }}
                         </td>
                         <!-- Dequeue Count -->
-                        <td style="padding: 12px; text-align: center; vertical-align: top;">
+                        <td data-sort-val="{{ m.dequeue_count }}" style="padding: 12px; text-align: center; vertical-align: top;">
                             {% if m.dequeue_count > 0 %}
                                 <span class="badge badge-warning font-mono" title="Message has been received {{ m.dequeue_count }} times">{{ m.dequeue_count }}</span>
                             {% else %}
@@ -157,7 +167,7 @@
                             {% endif %}
                         </td>
                         <!-- Expiration Time -->
-                        <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap; vertical-align: top;">
+                        <td data-sort-val="{{ m.expiration_time_str }}" style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap; vertical-align: top;">
                             {{ m.expiration_time_str }}
                         </td>
                         <!-- Actions (3-Dot Dropdown) -->
@@ -238,7 +248,9 @@
             <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Queue Name</th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600;" title="Click to sort by Queue Name">
+                            <span class="th-content">Queue Name <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
                         <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
@@ -246,7 +258,7 @@
                 {% if queues %}
                     {% for q in queues %}
                     <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
-                        <td style="padding: 12px; font-weight: 500; color: var(--text-white);">
+                        <td data-sort-val="{{ q.name }}" style="padding: 12px; font-weight: 500; color: var(--text-white);">
                             <i class="fa-solid fa-square-poll-horizontal" style="color: var(--success); margin-right: 8px;"></i>
                             {{ q.name }}
                         </td>

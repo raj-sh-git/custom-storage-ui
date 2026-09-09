@@ -121,9 +121,36 @@
                         <th style="padding: 12px; width: 40px; text-align: center;">
                             <input type="checkbox" id="selectAllBlobs" class="table-checkbox" onchange="toggleSelectAllBlobs(this)" title="Select all on this page">
                         </th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Blob Name</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 120px;">Size</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 170px;">Last Modified</th>
+                        <th class="sortable-th {% if sort_by == 'name' %}sorted-{{ sort_order }}{% endif %}" data-sort-type="text" onclick="navigateToBlobSort('name')" style="padding: 12px; color: var(--text-white); font-weight: 600;" title="Click to sort entire container by Blob Name">
+                            <span class="th-content">
+                                Blob Name 
+                                {% if sort_by == 'name' %}
+                                    <i class="fa-solid fa-arrow-{% if sort_order == 'asc' %}up{% else %}down{% endif %} sort-icon"></i>
+                                {% else %}
+                                    <i class="fa-solid fa-sort sort-icon"></i>
+                                {% endif %}
+                            </span>
+                        </th>
+                        <th class="sortable-th {% if sort_by == 'size' %}sorted-{{ sort_order }}{% endif %}" data-sort-type="number" onclick="navigateToBlobSort('size')" style="padding: 12px; color: var(--text-white); font-weight: 600; width: 120px;" title="Click to sort entire container by Size">
+                            <span class="th-content">
+                                Size 
+                                {% if sort_by == 'size' %}
+                                    <i class="fa-solid fa-arrow-{% if sort_order == 'asc' %}up{% else %}down{% endif %} sort-icon"></i>
+                                {% else %}
+                                    <i class="fa-solid fa-sort sort-icon"></i>
+                                {% endif %}
+                            </span>
+                        </th>
+                        <th class="sortable-th {% if sort_by == 'last_modified' %}sorted-{{ sort_order }}{% endif %}" data-sort-type="date" onclick="navigateToBlobSort('last_modified')" style="padding: 12px; color: var(--text-white); font-weight: 600; width: 170px;" title="Click to sort entire container by Last Modified">
+                            <span class="th-content">
+                                Last Modified 
+                                {% if sort_by == 'last_modified' %}
+                                    <i class="fa-solid fa-arrow-{% if sort_order == 'asc' %}up{% else %}down{% endif %} sort-icon"></i>
+                                {% else %}
+                                    <i class="fa-solid fa-sort sort-icon"></i>
+                                {% endif %}
+                            </span>
+                        </th>
                         <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 100px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
@@ -136,7 +163,7 @@
                             <input type="checkbox" class="blob-select-checkbox table-checkbox" data-name="{{ b.name }}" onchange="updateBlobSelection()">
                         </td>
                         <!-- Blob Name -->
-                        <td style="padding: 12px; color: var(--text-normal); word-break: break-all;">
+                        <td data-sort-val="{{ b.name }}" style="padding: 12px; color: var(--text-normal); word-break: break-all;">
                             {% if b.name.endswith('/') %}
                                 <i class="fa-solid fa-folder" style="color: var(--warning); margin-right: 6px;"></i> 
                                 <strong>{{ b.name }}</strong> 
@@ -147,7 +174,7 @@
                             {% endif %}
                         </td>
                         <!-- Size -->
-                        <td style="padding: 12px; color: var(--text-muted);">
+                        <td data-sort-val="{{ b.size or 0 }}" style="padding: 12px; color: var(--text-muted);">
                             {% if b.name.endswith('/') %}
                                 --
                             {% else %}
@@ -155,7 +182,7 @@
                             {% endif %}
                         </td>
                         <!-- Last Modified -->
-                        <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; white-space: nowrap;">
+                        <td data-sort-val="{{ b.last_modified.isoformat() if b.last_modified else '' }}" style="padding: 12px; color: var(--text-muted); font-size: 11.5px; white-space: nowrap;">
                             {% if b.last_modified %}
                                 {{ b.last_modified.strftime('%Y-%m-%d %H:%M:%S') }}
                             {% else %}
@@ -239,7 +266,7 @@
             <!-- Page Navigation Controls -->
             <div class="pagination-controls" style="display: flex; align-items: center; gap: 6px;">
                 <!-- Prev Page -->
-                <a href="{% if page > 1 %}{{ url_for('ui.view_blobs', container_name=container_name, page=page-1, limit=limit, q=search_query) }}{% else %}javascript:void(0){% endif %}" 
+                <a href="{% if page > 1 %}{{ url_for('ui.view_blobs', container_name=container_name, page=page-1, limit=limit, q=search_query, sort=sort_by, order=sort_order) }}{% else %}javascript:void(0){% endif %}" 
                    class="btn btn-neutral btn-sm {% if page <= 1 %}disabled{% endif %}" 
                    style="padding: 4px 10px; font-size: 12px; {% if page <= 1 %}opacity: 0.5; pointer-events: none;{% endif %}"
                    title="Previous Page">
@@ -250,9 +277,9 @@
                 <div class="page-links" style="display: flex; gap: 4px;">
                     {% for p in range(1, total_pages + 1) %}
                         {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-                            <a href="{{ url_for('ui.view_blobs', container_name=container_name, page=p, limit=limit, q=search_query) }}" 
-                               class="btn btn-sm {% if page == p %}btn-primary{% else %}btn-neutral{% endif %}"
-                               style="padding: 4px 10px; font-size: 12px; min-width: 32px; text-align: center;">
+                            <a href="{{ url_for('ui.view_blobs', container_name=container_name, page=p, limit=limit, q=search_query, sort=sort_by, order=sort_order) }}" 
+                                class="btn btn-sm {% if page == p %}btn-primary{% else %}btn-neutral{% endif %}"
+                                style="padding: 4px 10px; font-size: 12px; min-width: 32px; text-align: center;">
                                 {{ p }}
                             </a>
                         {% elif p == 2 or p == total_pages - 1 %}
@@ -262,7 +289,7 @@
                 </div>
 
                 <!-- Next Page -->
-                <a href="{% if page < total_pages %}{{ url_for('ui.view_blobs', container_name=container_name, page=page+1, limit=limit, q=search_query) }}{% else %}javascript:void(0){% endif %}" 
+                <a href="{% if page < total_pages %}{{ url_for('ui.view_blobs', container_name=container_name, page=page+1, limit=limit, q=search_query, sort=sort_by, order=sort_order) }}{% else %}javascript:void(0){% endif %}" 
                    class="btn btn-neutral btn-sm {% if page >= total_pages %}disabled{% endif %}" 
                    style="padding: 4px 10px; font-size: 12px; {% if page >= total_pages %}opacity: 0.5; pointer-events: none;{% endif %}"
                    title="Next Page">
@@ -302,7 +329,9 @@
             <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Container Name</th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600;" title="Click to sort by Container Name">
+                            <span class="th-content">Container Name <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
                         <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
@@ -310,7 +339,7 @@
                 {% if containers %}
                     {% for c in containers %}
                     <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
-                        <td style="padding: 12px; font-weight: 500; color: var(--text-white);">
+                        <td data-sort-val="{{ c.name }}" style="padding: 12px; font-weight: 500; color: var(--text-white);">
                             <i class="fa-solid fa-folder" style="color: #0078d4; margin-right: 8px;"></i>
                             {{ c.name }}
                         </td>
@@ -426,7 +455,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-neutral" onclick="closeModal('emptyContainerModal')">Cancel</button>
-                <form method="POST" action="{{ url_for('ui.empty_container', container_name=container_name) }}" style="display: inline;">
+                <form method="POST" action="{{ url_for('ui.empty_container', container_name=container_name or 'none') }}" style="display: inline;">
                     <button type="submit" class="btn btn-danger" style="display: flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-trash-can"></i>
                         <span>Yes, Empty All Blobs</span>
@@ -586,7 +615,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-neutral" onclick="closeModal('deleteSingleBlobModal')">Cancel</button>
-                <form id="deleteSingleBlobForm" method="POST" action="{{ url_for('ui.delete_blob', container_name=container_name) }}" style="display: inline;">
+                <form id="deleteSingleBlobForm" method="POST" action="{{ url_for('ui.delete_blob', container_name=container_name or 'none') }}" style="display: inline;">
                     <input type="hidden" id="deleteSingleBlobInput" name="blob_name" value="">
                     <button type="submit" class="btn btn-danger" style="display: flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-trash-can"></i>

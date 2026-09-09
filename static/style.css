@@ -3015,3 +3015,76 @@ body.light-theme .action-dropdown-divider {
     background-color: rgba(0, 0, 0, 0.08);
 }
 
+/* ==========================================================================
+   Table Column Sorting Styles
+   ========================================================================== */
+
+.sortable-th {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+    position: relative;
+}
+
+.sortable-th:hover {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+    color: var(--text-white) !important;
+}
+
+body.light-theme .sortable-th:hover {
+    background-color: rgba(0, 120, 212, 0.08) !important;
+    color: #0078d4 !important;
+}
+
+.sortable-th .th-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sortable-th.th-center .th-content {
+    justify-content: center;
+    width: 100%;
+}
+
+.sortable-th .sort-icon {
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0.4;
+    transition: opacity var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.sortable-th:hover .sort-icon {
+    opacity: 0.9;
+    color: var(--text-normal);
+}
+
+body.light-theme .sortable-th:hover .sort-icon {
+    color: #0078d4;
+}
+
+.sortable-th.sorted-asc,
+.sortable-th.sorted-desc {
+    background-color: rgba(0, 120, 212, 0.08) !important;
+    color: var(--accent-blue) !important;
+}
+
+body.light-theme .sortable-th.sorted-asc,
+body.light-theme .sortable-th.sorted-desc {
+    background-color: rgba(0, 120, 212, 0.12) !important;
+    color: #0078d4 !important;
+}
+
+.sortable-th.sorted-asc .sort-icon,
+.sortable-th.sorted-desc .sort-icon {
+    opacity: 1 !important;
+    color: var(--accent-blue) !important;
+}
+
+body.light-theme .sortable-th.sorted-asc .sort-icon,
+body.light-theme .sortable-th.sorted-desc .sort-icon {
+    color: #0078d4 !important;
+}
+
+

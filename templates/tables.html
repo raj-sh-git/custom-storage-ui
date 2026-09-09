@@ -63,9 +63,15 @@
             <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 180px;">PartitionKey</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 180px;">RowKey</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Custom Properties</th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600; width: 180px;" title="Click to sort by PartitionKey">
+                            <span class="th-content">PartitionKey <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600; width: 180px;" title="Click to sort by RowKey">
+                            <span class="th-content">RowKey <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600;" title="Click to sort by Custom Properties">
+                            <span class="th-content">Custom Properties <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
                         <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 120px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
@@ -73,10 +79,10 @@
                 {% if entities %}
                     {% for e in entities %}
                     <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
-                        <td style="padding: 12px; font-weight: 600; color: var(--text-white); font-family: var(--font-code);">
+                        <td data-sort-val="{{ e['PartitionKey'] }}" style="padding: 12px; font-weight: 600; color: var(--text-white); font-family: var(--font-code);">
                             {{ e['PartitionKey'] }}
                         </td>
-                        <td style="padding: 12px; font-weight: 600; color: var(--text-white); font-family: var(--font-code);">
+                        <td data-sort-val="{{ e['RowKey'] }}" style="padding: 12px; font-weight: 600; color: var(--text-white); font-family: var(--font-code);">
                             {{ e['RowKey'] }}
                         </td>
                         <td style="padding: 12px; color: var(--text-normal); font-size: 13px; line-height: 1.5; white-space: pre-wrap;">
@@ -160,7 +166,9 @@
             <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600;">Table Name</th>
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600;" title="Click to sort by Table Name">
+                            <span class="th-content">Table Name <i class="fa-solid fa-sort sort-icon"></i></span>
+                        </th>
                         <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
@@ -168,7 +176,7 @@
                 {% if table_names %}
                     {% for t in table_names %}
                     <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
-                        <td style="padding: 12px; font-weight: 500; color: var(--text-white);">
+                        <td data-sort-val="{{ t }}" style="padding: 12px; font-weight: 500; color: var(--text-white);">
                             <i class="fa-solid fa-table-cells" style="color: var(--warning); margin-right: 8px;"></i>
                             {{ t }}
                         </td>
