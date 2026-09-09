@@ -2434,7 +2434,7 @@ body.light-theme .btn-pill:hover {
 /* Responsive Table Layout & Preview Box for Queue Messages */
 .queue-table {
     width: 100%;
-    min-width: 960px;
+    table-layout: fixed;
     border-collapse: collapse;
     text-align: left;
 }
@@ -2442,6 +2442,7 @@ body.light-theme .btn-pill:hover {
 .queue-table th,
 .queue-table td {
     vertical-align: top !important;
+    overflow: hidden;
 }
 
 .btn-queue-expand {
@@ -2459,6 +2460,7 @@ body.light-theme .btn-pill:hover {
     transition: var(--transition-fast);
     line-height: 1.2;
     user-select: none;
+    flex-shrink: 0;
 }
 
 .btn-queue-expand:hover {
@@ -2486,13 +2488,16 @@ body.light-theme .btn-queue-expand.active-expand {
 }
 
 .queue-msg-box {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     font-family: var(--font-code);
     font-size: 12px;
     background: rgba(0, 0, 0, 0.25);
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    box-sizing: border-box;
     transition: max-height 0.2s ease, background 0.2s ease;
+    overflow: hidden;
 }
 
 .queue-msg-box.collapsed {
@@ -2509,6 +2514,7 @@ body.light-theme .btn-queue-expand.active-expand {
 .queue-msg-box.collapsed code {
     display: block;
     width: 100%;
+    max-width: 100%;
     margin: 0;
     padding: 0;
     background: transparent !important;
@@ -2523,18 +2529,21 @@ body.light-theme .btn-queue-expand.active-expand {
 }
 
 .queue-msg-box.expanded {
-    max-height: 240px;
+    max-height: 200px;
     min-height: 48px;
     padding: 8px 12px;
     overflow-y: auto;
+    overflow-x: hidden;
     white-space: pre-wrap;
     word-break: break-all;
+    overflow-wrap: anywhere;
     background: rgba(0, 0, 0, 0.35);
 }
 
 .queue-msg-box.expanded code {
     display: block;
     width: 100%;
+    max-width: 100%;
     margin: 0;
     padding: 0;
     background: transparent !important;
@@ -2545,7 +2554,8 @@ body.light-theme .btn-queue-expand.active-expand {
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-all;
-    overflow: visible;
+    overflow-wrap: anywhere;
+    overflow: hidden;
 }
 
 body.light-theme .queue-msg-box {

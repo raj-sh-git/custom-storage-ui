@@ -80,18 +80,18 @@
 
         <!-- Active Peeks List Table -->
         <div class="table-responsive" style="margin-top: 6px;">
-            <table class="table table-bordered table-sm small queue-table">
+            <table class="table table-bordered table-sm small queue-table" style="width: 100%; table-layout: fixed;">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th style="padding: 12px; width: 40px; text-align: center; vertical-align: top;">
+                        <th style="padding: 10px 8px; width: 38px; text-align: center; vertical-align: top;">
                             <input type="checkbox" id="selectAllQueueMsgs" class="table-checkbox" onchange="toggleSelectAllQueueMsgs(this)" title="Select all messages">
                         </th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 190px; min-width: 170px; vertical-align: top;">Message ID</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; min-width: 280px; vertical-align: top;">Message Content & Format</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px; min-width: 130px; text-align: center; vertical-align: top;">Insertion Time</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 95px; min-width: 85px; text-align: center; vertical-align: top;">Dequeue Count</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px; min-width: 130px; text-align: center; vertical-align: top;">Expiration Time</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 130px; min-width: 120px; text-align: center; vertical-align: top;">Actions</th>
+                        <th style="padding: 10px 10px; color: var(--text-white); font-weight: 600; width: 170px; vertical-align: top;">Message ID</th>
+                        <th style="padding: 10px 12px; color: var(--text-white); font-weight: 600; vertical-align: top;">Message Content & Format</th>
+                        <th style="padding: 10px 8px; color: var(--text-white); font-weight: 600; width: 135px; text-align: center; vertical-align: top;">Insertion Time</th>
+                        <th style="padding: 10px 6px; color: var(--text-white); font-weight: 600; width: 85px; text-align: center; vertical-align: top;">Dequeue Count</th>
+                        <th style="padding: 10px 8px; color: var(--text-white); font-weight: 600; width: 135px; text-align: center; vertical-align: top;">Expiration Time</th>
+                        <th style="padding: 10px 6px; color: var(--text-white); font-weight: 600; width: 75px; text-align: center; vertical-align: top;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="queueMessagesTableBody">
@@ -99,15 +99,15 @@
                     {% for m in messages %}
                     <tr class="queue-msg-row" data-msg-id="{{ m.id }}" style="border-bottom: 1px solid var(--border-color);">
                         <!-- Checkbox -->
-                        <td style="padding: 12px; text-align: center; vertical-align: top;">
+                        <td style="padding: 10px 8px; text-align: center; vertical-align: top;">
                             <input type="checkbox" class="queue-msg-checkbox table-checkbox" data-id="{{ m.id }}" onchange="updateQueueMsgSelection()">
                         </td>
                         <!-- Message ID -->
-                        <td style="padding: 12px; font-family: var(--font-code); color: var(--text-muted); font-size: 12px; word-break: break-all; vertical-align: top;">
-                            <i class="fa-solid fa-envelope" style="color: var(--accent-blue); margin-right: 6px;"></i>{{ m.id }}
+                        <td style="padding: 10px 10px; font-family: var(--font-code); color: var(--text-muted); font-size: 11.5px; word-break: break-all; overflow-wrap: anywhere; vertical-align: top;">
+                            <i class="fa-solid fa-envelope" style="color: var(--accent-blue); margin-right: 4px;"></i>{{ m.id }}
                         </td>
                         <!-- Content Preview & Encoding Pill Switcher with Show Full Button -->
-                        <td style="padding: 12px; color: var(--text-normal); word-break: break-all; vertical-align: top;">
+                        <td style="padding: 10px 12px; color: var(--text-normal); word-break: break-all; overflow-wrap: anywhere; vertical-align: top; overflow: hidden;">
                             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
                                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                                     {% if m.is_base64 %}
