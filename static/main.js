@@ -1259,11 +1259,11 @@ function decodeBase64Client(str) {
 }
 
 function setQueueMsgViewMode(index, mode, explicitDecoded, explicitRaw) {
-    const previewEl = document.getElementById(`queue-preview-${index}`);
-    const fullEl = document.getElementById(`queue-full-${index}`);
+    const box = document.getElementById(`queue-box-${index}`);
+    const contentEl = document.getElementById(`queue-content-${index}`) || document.getElementById(`queue-preview-${index}`);
     const btnDecoded = document.getElementById(`btn-decoded-${index}`);
     const btnRaw = document.getElementById(`btn-raw-${index}`);
-    if (!previewEl) return;
+    if (!contentEl) return;
 
     let decodedContent = explicitDecoded;
     let rawContent = explicitRaw;
@@ -1281,7 +1281,7 @@ function setQueueMsgViewMode(index, mode, explicitDecoded, explicitRaw) {
         }
     }
 
-    if (rawContent === undefined) rawContent = previewEl.textContent || '';
+    if (rawContent === undefined) rawContent = contentEl.textContent || '';
     if (decodedContent === undefined) decodedContent = rawContent;
 
     let effectiveDecoded = decodedContent;
@@ -1292,18 +1292,20 @@ function setQueueMsgViewMode(index, mode, explicitDecoded, explicitRaw) {
         }
     }
 
+    const isExpanded = box && box.classList.contains('expanded');
+    const activePayload = (mode === 'raw') ? (rawContent || '') : (effectiveDecoded || '');
+
+    if (isExpanded) {
+        contentEl.textContent = activePayload;
+    } else {
+        const trimmed = activePayload.trim();
+        contentEl.textContent = trimmed.length > 120 ? (trimmed.substring(0, 120) + '...') : trimmed;
+    }
+
     if (mode === 'raw') {
-        const rawTrimmed = (rawContent || '').trim();
-        const rawTrunc = rawTrimmed.length > 120 ? (rawTrimmed.substring(0, 120) + '...') : rawTrimmed;
-        previewEl.textContent = rawTrunc;
-        if (fullEl) fullEl.textContent = rawContent;
         if (btnRaw) btnRaw.classList.add('active');
         if (btnDecoded) btnDecoded.classList.remove('active');
     } else {
-        const decTrimmed = (effectiveDecoded || '').trim();
-        const decTrunc = decTrimmed.length > 120 ? (decTrimmed.substring(0, 120) + '...') : decTrimmed;
-        previewEl.textContent = decTrunc;
-        if (fullEl) fullEl.textContent = effectiveDecoded;
         if (btnDecoded) btnDecoded.classList.add('active');
         if (btnRaw) btnRaw.classList.remove('active');
     }
@@ -1318,16 +1320,67 @@ function toggleQueueMsgView(index, decodedContent, rawContent) {
 }
 
 function toggleQueueMsgExpand(index) {
-    const fullEl = document.getElementById(`queue-full-${index}`);
+    const box = document.getElementById(`queue-box-${index}`);
+    const contentEl = document.getElementById(`queue-content-${index}`) || document.getElementById(`queue-preview-${index}`);
     const expandBtn = document.getElementById(`queue-expand-${index}`);
-    if (!fullEl || !expandBtn) return;
+    const expandText = document.getElementById(`queue-expand-text-${index}`);
+    const expandIcon = document.getElementById(`queue-expand-icon-${index}`);
+    if (!box || !contentEl) return;
 
-    if (fullEl.style.display === 'none' || !fullEl.style.display) {
-        fullEl.style.display = 'block';
-        expandBtn.innerHTML = 'Collapse ▲';
+    // Determine current view mode (raw or decoded)
+    const btnDecoded = document.getElementById(`btn-decoded-${index}`);
+    const isDecodedMode = btnDecoded && btnDecoded.classList.contains('active');
+    const mode = isDecodedMode ? 'decoded' : 'raw';
+
+    let decodedContent = '';
+    let rawContent = '';
+    const dataScript = document.getElementById(`queue-msg-data-${index}`);
+    if (dataScript) {
+        try {
+            const data = JSON.parse(dataScript.textContent);
+            decodedContent = data.decoded;
+            rawContent = data.raw;
+        } catch (e) {}
+    }
+    if (!rawContent) rawContent = contentEl.textContent || '';
+    if (!decodedContent) decodedContent = rawContent;
+
+    let effectiveDecoded = decodedContent;
+    if (!effectiveDecoded || effectiveDecoded === rawContent) {
+        const clientDecoded = decodeBase64Client(rawContent);
+        if (clientDecoded && clientDecoded !== rawContent) {
+            effectiveDecoded = clientDecoded;
+        }
+    }
+
+    const activePayload = (mode === 'raw') ? (rawContent || '') : (effectiveDecoded || '');
+    const isCurrentlyExpanded = box.classList.contains('expanded');
+
+    if (isCurrentlyExpanded) {
+        // Collapse to single-line preview
+        box.classList.remove('expanded');
+        box.classList.add('collapsed');
+        const trimmed = activePayload.trim();
+        contentEl.textContent = trimmed.length > 120 ? (trimmed.substring(0, 120) + '...') : trimmed;
+
+        if (expandText) expandText.textContent = 'Show Full';
+        if (expandIcon) expandIcon.className = 'fa-solid fa-chevron-down';
+        if (expandBtn) {
+            expandBtn.classList.remove('active-expand');
+            expandBtn.title = 'Expand full content in place';
+        }
     } else {
-        fullEl.style.display = 'none';
-        expandBtn.innerHTML = 'Show Full ▼';
+        // Expand the SAME box to show full multiline content
+        box.classList.remove('collapsed');
+        box.classList.add('expanded');
+        contentEl.textContent = activePayload;
+
+        if (expandText) expandText.textContent = 'Collapse';
+        if (expandIcon) expandIcon.className = 'fa-solid fa-chevron-up';
+        if (expandBtn) {
+            expandBtn.classList.add('active-expand');
+            expandBtn.title = 'Collapse content to single line';
+        }
     }
 }
 
@@ -1794,20 +1847,21 @@ function openDeleteShareFileModal(share, filename) {
 
 // --- 3. Queue Action Handlers ---
 function copyQueueMsgPayload(index) {
+    const btnDecoded = document.getElementById(`btn-decoded-${index}`);
+    const isDecodedMode = btnDecoded && btnDecoded.classList.contains('active');
     const dataScript = document.getElementById(`queue-msg-data-${index}`);
     let content = '';
     if (dataScript) {
         try {
             const data = JSON.parse(dataScript.textContent);
-            content = data.decoded || data.raw || '';
+            content = isDecodedMode ? (data.decoded || data.raw || '') : (data.raw || data.decoded || '');
         } catch (e) {
             console.error(e);
         }
     }
     if (!content) {
-        const previewEl = document.getElementById(`queue-preview-${index}`);
-        const fullEl = document.getElementById(`queue-full-${index}`);
-        content = fullEl ? fullEl.textContent : (previewEl ? previewEl.textContent : '');
+        const contentEl = document.getElementById(`queue-content-${index}`) || document.getElementById(`queue-preview-${index}`);
+        content = contentEl ? contentEl.textContent : '';
     }
     copyTextToClipboard(content, 'Queue message payload copied to clipboard!');
 }

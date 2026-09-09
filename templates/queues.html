@@ -80,18 +80,18 @@
 
         <!-- Active Peeks List Table -->
         <div class="table-responsive" style="margin-top: 6px;">
-            <table class="table table-bordered table-sm align-middle small queue-table">
+            <table class="table table-bordered table-sm small queue-table">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th style="padding: 12px; width: 40px; text-align: center;">
+                        <th style="padding: 12px; width: 40px; text-align: center; vertical-align: top;">
                             <input type="checkbox" id="selectAllQueueMsgs" class="table-checkbox" onchange="toggleSelectAllQueueMsgs(this)" title="Select all messages">
                         </th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 190px; min-width: 170px;">Message ID</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; min-width: 280px;">Message Content & Format</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px; min-width: 130px; text-align: center;">Insertion Time</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 95px; min-width: 85px; text-align: center;">Dequeue Count</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px; min-width: 130px; text-align: center;">Expiration Time</th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 130px; min-width: 120px; text-align: center;">Actions</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 190px; min-width: 170px; vertical-align: top;">Message ID</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; min-width: 280px; vertical-align: top;">Message Content & Format</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px; min-width: 130px; text-align: center; vertical-align: top;">Insertion Time</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 95px; min-width: 85px; text-align: center; vertical-align: top;">Dequeue Count</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 140px; min-width: 130px; text-align: center; vertical-align: top;">Expiration Time</th>
+                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 130px; min-width: 120px; text-align: center; vertical-align: top;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="queueMessagesTableBody">
@@ -99,15 +99,15 @@
                     {% for m in messages %}
                     <tr class="queue-msg-row" data-msg-id="{{ m.id }}" style="border-bottom: 1px solid var(--border-color);">
                         <!-- Checkbox -->
-                        <td style="padding: 12px; text-align: center;">
+                        <td style="padding: 12px; text-align: center; vertical-align: top;">
                             <input type="checkbox" class="queue-msg-checkbox table-checkbox" data-id="{{ m.id }}" onchange="updateQueueMsgSelection()">
                         </td>
                         <!-- Message ID -->
-                        <td style="padding: 12px; font-family: var(--font-code); color: var(--text-muted); font-size: 12px; word-break: break-all;">
+                        <td style="padding: 12px; font-family: var(--font-code); color: var(--text-muted); font-size: 12px; word-break: break-all; vertical-align: top;">
                             <i class="fa-solid fa-envelope" style="color: var(--accent-blue); margin-right: 6px;"></i>{{ m.id }}
                         </td>
-                        <!-- Content Preview & Encoding Pill Switcher -->
-                        <td style="padding: 12px; color: var(--text-normal); word-break: break-all; vertical-align: middle;">
+                        <!-- Content Preview & Encoding Pill Switcher with Show Full Button -->
+                        <td style="padding: 12px; color: var(--text-normal); word-break: break-all; vertical-align: top;">
                             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
                                 <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                                     {% if m.is_base64 %}
@@ -124,29 +124,32 @@
                                                 <i class="fa-solid fa-eye"></i> Show Plain Text
                                             </button>
                                         </div>
-                                        <script id="queue-msg-data-{{ loop.index }}" type="application/json">{"decoded": {{ m.decoded_content|tojson|safe }}, "raw": {{ m.raw_content|tojson|safe }}}</script>
                                     {% else %}
                                         <span class="badge badge-neutral font-mono" style="white-space: nowrap; flex-shrink: 0;" title="Plain Text / Raw UTF-8">
                                             <i class="fa-solid fa-font" style="margin-right: 4px;"></i>Plain Text
                                         </span>
                                     {% endif %}
+                                    <script id="queue-msg-data-{{ loop.index }}" type="application/json">{"decoded": {{ m.decoded_content|tojson|safe }}, "raw": {{ m.raw_content|tojson|safe }}}</script>
+
+                                    <!-- Show Full Button next to Payload Switcher -->
+                                    <button type="button" id="queue-expand-{{ loop.index }}" class="btn-queue-expand"
+                                            onclick="toggleQueueMsgExpand({{ loop.index }})" title="Expand or collapse full content in place">
+                                        <span id="queue-expand-text-{{ loop.index }}">Show Full</span>
+                                        <i id="queue-expand-icon-{{ loop.index }}" class="fa-solid fa-chevron-down" style="font-size: 9px;"></i>
+                                    </button>
                                 </div>
                             </div>
-                            <div class="queue-msg-preview-box"><code id="queue-preview-{{ loop.index }}">{{ m.raw_preview|trim }}</code></div>
-                            <button type="button" id="queue-expand-{{ loop.index }}" class="btn btn-link btn-sm p-0"
-                                    style="text-decoration:none; color: var(--accent-blue); font-size: 11px; border: none; background: transparent; cursor: pointer; margin-top: 4px; display: inline-block;"
-                                    onclick="toggleQueueMsgExpand({{ loop.index }})">
-                                Show Full ▼
-                            </button>
-                            <pre id="queue-full-{{ loop.index }}"
-                                 style="display: none; white-space: pre-wrap; word-break: break-all; font-family: var(--font-code); border: 1px solid var(--border-color); padding: 10px; background-color: rgba(0,0,0,0.3); border-radius: 6px; font-size: 12px; margin-top: 6px; max-height: 220px; overflow-y: auto;">{{ m.raw_content }}</pre>
+                            <!-- Single Unified Expandable Text Box -->
+                            <div id="queue-box-{{ loop.index }}" class="queue-msg-box collapsed">
+                                <code id="queue-content-{{ loop.index }}">{{ m.raw_preview|trim }}</code>
+                            </div>
                         </td>
                         <!-- Insertion Time -->
-                        <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap;">
+                        <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap; vertical-align: top;">
                             {{ m.insertion_time_str }}
                         </td>
                         <!-- Dequeue Count -->
-                        <td style="padding: 12px; text-align: center;">
+                        <td style="padding: 12px; text-align: center; vertical-align: top;">
                             {% if m.dequeue_count > 0 %}
                                 <span class="badge badge-warning font-mono" title="Message has been received {{ m.dequeue_count }} times">{{ m.dequeue_count }}</span>
                             {% else %}
@@ -154,11 +157,11 @@
                             {% endif %}
                         </td>
                         <!-- Expiration Time -->
-                        <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap;">
+                        <td style="padding: 12px; color: var(--text-muted); font-size: 11.5px; text-align: center; white-space: nowrap; vertical-align: top;">
                             {{ m.expiration_time_str }}
                         </td>
                         <!-- Actions (3-Dot Dropdown) -->
-                        <td style="padding: 12px; text-align: center; position: relative;">
+                        <td style="padding: 12px; text-align: center; position: relative; vertical-align: top;">
                             <div class="action-dropdown">
                                 <button type="button" class="action-dropdown-btn" onclick="toggleActionDropdown(event, this)" title="Actions">
                                     <i class="fa-solid fa-ellipsis-vertical"></i>
