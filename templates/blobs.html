@@ -78,17 +78,17 @@
             </div>
         </div>
 
-        <!-- Toolbar (Multi-file Upload with Progress and Virtual Folders) -->
+        <!-- Toolbar (Multi-file Upload with Progress, Virtual Folders & Date Filter) -->
         <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-direction: column; gap: 12px;">
             <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;">
                 <!-- Multi-file Upload Form with Async Progress -->
                 <form id="blobUploadForm" method="POST" enctype="multipart/form-data" 
                       action="{{ url_for('ui.view_blobs', container_name=container_name) }}"
                       onsubmit="uploadBlobsWithProgress(event, this, '{{ container_name }}')"
-                      style="display: flex; align-items: center; gap: 10px; flex-grow: 1; flex-wrap: wrap;">
+                      style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                     <div class="input-icon-group">
                         <i class="fa-solid fa-folder icon-inside" style="font-size: 13px;"></i>
-                        <input type="text" name="folder" placeholder="Folder path (e.g. reports/)" style="width: 200px; padding-left: 36px;">
+                        <input type="text" name="folder" placeholder="Folder path (e.g. reports/)" style="width: 180px; padding-left: 36px;">
                     </div>
                     <label class="btn btn-neutral btn-sm" style="margin-bottom: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-file-circle-plus"></i> Choose Files
@@ -97,6 +97,35 @@
                     <span id="blobUploadNamePreview" style="font-size: 12px; color: var(--text-muted); font-weight: 500;">No files chosen</span>
                     <button type="submit" class="btn btn-primary btn-sm">
                         <i class="fa-solid fa-cloud-arrow-up"></i> Upload Files
+                    </button>
+                </form>
+
+                <!-- Date Range Filter Form (Right of Upload Files) -->
+                <form id="blobDateFilterForm" method="GET" action="{{ url_for('ui.view_blobs', container_name=container_name) }}" 
+                      style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" class="date-filter-group">
+                    <input type="hidden" name="limit" value="{{ limit }}">
+                    <input type="hidden" name="sort" value="{{ sort_by }}">
+                    <input type="hidden" name="order" value="{{ sort_order }}">
+                    {% if search_query %}
+                    <input type="hidden" name="q" value="{{ search_query }}">
+                    {% endif %}
+
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;">From:</span>
+                        <input type="date" name="from_date" id="blobFromDate" value="{{ from_date or '' }}" title="Show blobs modified on or after this date">
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;">To:</span>
+                        <input type="date" name="to_date" id="blobToDate" value="{{ to_date or '' }}" title="Show blobs modified on or before this date">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm" style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; font-size: 11.5px;">
+                        <i class="fa-solid fa-filter"></i>
+                        <span>Show Blobs</span>
+                    </button>
+                    <button type="button" class="btn btn-neutral btn-sm" onclick="clearBlobDateFilter('{{ container_name }}')" 
+                            title="Clear date filter" style="display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; font-size: 11.5px;">
+                        <i class="fa-solid fa-xmark"></i>
+                        <span>Clear</span>
                     </button>
                 </form>
             </div>
@@ -266,7 +295,7 @@
             <!-- Page Navigation Controls -->
             <div class="pagination-controls" style="display: flex; align-items: center; gap: 6px;">
                 <!-- Prev Page -->
-                <a href="{% if page > 1 %}{{ url_for('ui.view_blobs', container_name=container_name, page=page-1, limit=limit, q=search_query, sort=sort_by, order=sort_order) }}{% else %}javascript:void(0){% endif %}" 
+                <a href="{% if page > 1 %}{{ url_for('ui.view_blobs', container_name=container_name, page=page-1, limit=limit, q=search_query, sort=sort_by, order=sort_order, from_date=from_date, to_date=to_date) }}{% else %}javascript:void(0){% endif %}" 
                    class="btn btn-neutral btn-sm {% if page <= 1 %}disabled{% endif %}" 
                    style="padding: 4px 10px; font-size: 12px; {% if page <= 1 %}opacity: 0.5; pointer-events: none;{% endif %}"
                    title="Previous Page">
@@ -277,7 +306,7 @@
                 <div class="page-links" style="display: flex; gap: 4px;">
                     {% for p in range(1, total_pages + 1) %}
                         {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-                            <a href="{{ url_for('ui.view_blobs', container_name=container_name, page=p, limit=limit, q=search_query, sort=sort_by, order=sort_order) }}" 
+                            <a href="{{ url_for('ui.view_blobs', container_name=container_name, page=p, limit=limit, q=search_query, sort=sort_by, order=sort_order, from_date=from_date, to_date=to_date) }}" 
                                 class="btn btn-sm {% if page == p %}btn-primary{% else %}btn-neutral{% endif %}"
                                 style="padding: 4px 10px; font-size: 12px; min-width: 32px; text-align: center;">
                                 {{ p }}
@@ -289,7 +318,7 @@
                 </div>
 
                 <!-- Next Page -->
-                <a href="{% if page < total_pages %}{{ url_for('ui.view_blobs', container_name=container_name, page=page+1, limit=limit, q=search_query, sort=sort_by, order=sort_order) }}{% else %}javascript:void(0){% endif %}" 
+                <a href="{% if page < total_pages %}{{ url_for('ui.view_blobs', container_name=container_name, page=page+1, limit=limit, q=search_query, sort=sort_by, order=sort_order, from_date=from_date, to_date=to_date) }}{% else %}javascript:void(0){% endif %}" 
                    class="btn btn-neutral btn-sm {% if page >= total_pages %}disabled{% endif %}" 
                    style="padding: 4px 10px; font-size: 12px; {% if page >= total_pages %}opacity: 0.5; pointer-events: none;{% endif %}"
                    title="Next Page">

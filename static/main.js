@@ -2303,5 +2303,56 @@ function navigateToBlobSort(sortField) {
     window.location.href = url.toString();
 }
 
+function clearBlobDateFilter(containerName) {
+    const fromInput = document.getElementById('blobFromDate');
+    const toInput = document.getElementById('blobToDate');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('from_date');
+    url.searchParams.delete('to_date');
+    url.searchParams.set('page', '1');
+    window.location.href = url.toString();
+}
+
+function clearFileShareDateFilter(share) {
+    const fromInput = document.getElementById('fileShareFromDate');
+    const toInput = document.getElementById('fileShareToDate');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('from_date');
+    url.searchParams.delete('to_date');
+    window.location.href = url.toString();
+}
+
+function clearQueueDateFilter(queue) {
+    const fromInput = document.getElementById('queueFromDate');
+    const toInput = document.getElementById('queueToDate');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('from_date');
+    url.searchParams.delete('to_date');
+    window.location.href = url.toString();
+}
+
+function clearTableDateFilter(tableName) {
+    const fromInput = document.getElementById('tableFromDate');
+    const toInput = document.getElementById('tableToDate');
+    if (fromInput) fromInput.value = '';
+    if (toInput) toInput.value = '';
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('from_date');
+    url.searchParams.delete('to_date');
+    window.location.href = url.toString();
+}
+
+
+
 
 

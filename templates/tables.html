@@ -24,77 +24,115 @@
             </a>
         </div>
 
-        <!-- Toolbar (Insert Entity Form) -->
-        <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none;">
-            <h5 style="font-size: 13px; font-weight: 600; color: var(--text-white); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Insert New Entity</h5>
-            <form method="POST" action="{{ url_for('ui.add_entity', table_name=table_name) }}" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
-                <div style="display: flex; flex-direction: column; gap: 6px; width: 140px;">
-                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">PartitionKey *</span>
-                    <div class="input-icon-group">
-                        <input name="partition_key" required placeholder="e.g. US" style="padding: 6px 12px;">
-                    </div>
+        <!-- Toolbar (Insert Entity Form & Date Filter) -->
+        <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px;">
+                <!-- Insert Entity Form -->
+                <div>
+                    <h5 style="font-size: 12px; font-weight: 600; color: var(--text-white); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        <i class="fa-solid fa-plus-circle" style="color: var(--warning); margin-right: 4px;"></i> Insert New Entity
+                    </h5>
+                    <form method="POST" action="{{ url_for('ui.add_entity', table_name=table_name) }}" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;">
+                        <div style="display: flex; flex-direction: column; gap: 4px; width: 130px;">
+                            <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">PartitionKey *</span>
+                            <div class="input-icon-group">
+                                <input name="partition_key" required placeholder="e.g. US" style="padding: 5px 10px; font-size: 12px; height: 30px;">
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px; width: 130px;">
+                            <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">RowKey *</span>
+                            <div class="input-icon-group">
+                                <input name="row_key" required placeholder="e.g. 1001" style="padding: 5px 10px; font-size: 12px; height: 30px;">
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px; width: 130px;">
+                            <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Prop Name</span>
+                            <div class="input-icon-group">
+                                <input name="prop_k" placeholder="e.g. Email" style="padding: 5px 10px; font-size: 12px; height: 30px;">
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 4px; width: 160px;">
+                            <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Prop Value</span>
+                            <div class="input-icon-group">
+                                <input name="prop_v" placeholder="e.g. test@example.com" style="width: 100%; padding: 5px 10px; font-size: 12px; height: 30px;">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm" style="background-color: var(--warning); border-color: var(--warning); color: #000; height: 30px; padding: 0 12px; font-size: 12px; font-weight: 600;">
+                            <i class="fa-solid fa-plus"></i> Insert
+                        </button>
+                    </form>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 6px; width: 140px;">
-                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">RowKey *</span>
-                    <div class="input-icon-group">
-                        <input name="row_key" required placeholder="e.g. 1001" style="padding: 6px 12px;">
-                    </div>
+
+                <!-- Date Range Filter Form (Right Side) -->
+                <div>
+                    <h5 style="font-size: 12px; font-weight: 600; color: var(--text-white); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        <i class="fa-solid fa-filter" style="color: var(--warning); margin-right: 4px;"></i> Date Range Filter
+                    </h5>
+                    <form id="tableDateFilterForm" method="GET" action="{{ url_for('ui.view_table', table_name=table_name) }}" 
+                          style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" class="date-filter-group">
+                        <div style="display: flex; align-items: center; gap: 5px;">
+                            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;">From:</span>
+                            <input type="date" name="from_date" id="tableFromDate" value="{{ from_date or '' }}" title="Show entities modified/created on or after this date">
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 5px;">
+                            <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;">To:</span>
+                            <input type="date" name="to_date" id="tableToDate" value="{{ to_date or '' }}" title="Show entities modified/created on or before this date">
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm" style="background-color: var(--warning); border-color: var(--warning); color: #000; display: flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px; font-size: 11.5px; font-weight: 600;">
+                            <i class="fa-solid fa-filter"></i>
+                            <span>Show Entities</span>
+                        </button>
+                        <button type="button" class="btn btn-neutral btn-sm" onclick="clearTableDateFilter('{{ table_name }}')" 
+                                title="Clear date filter" style="display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px; font-size: 11.5px;">
+                            <i class="fa-solid fa-xmark"></i>
+                            <span>Clear</span>
+                        </button>
+                    </form>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 6px; width: 140px;">
-                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Prop Name</span>
-                    <div class="input-icon-group">
-                        <input name="prop_k" placeholder="e.g. Email" style="padding: 6px 12px;">
-                    </div>
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 6px; flex-grow: 1;">
-                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Prop Value</span>
-                    <div class="input-icon-group">
-                        <input name="prop_v" placeholder="e.g. test@example.com" style="width: 100%; padding: 6px 12px;">
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-primary btn-sm" style="background-color: var(--success); border-color: var(--success); height: 33px;">
-                    <i class="fa-solid fa-plus"></i> Insert
-                </button>
-            </form>
+            </div>
         </div>
 
         <!-- Table Entities Data Grid -->
         <div class="table-responsive" style="margin-top: 10px;">
-            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+            <table class="table table-bordered table-sm align-middle small table-compact" style="width: 100%; border-collapse: collapse; text-align: left;">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600; width: 180px;" title="Click to sort by PartitionKey">
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 8px 12px; color: var(--text-white); font-weight: 600; width: 20%; min-width: 170px;" title="Click to sort by PartitionKey">
                             <span class="th-content">PartitionKey <i class="fa-solid fa-sort sort-icon"></i></span>
                         </th>
-                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600; width: 180px;" title="Click to sort by RowKey">
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 8px 12px; color: var(--text-white); font-weight: 600; width: 32%; min-width: 270px;" title="Click to sort by RowKey">
                             <span class="th-content">RowKey <i class="fa-solid fa-sort sort-icon"></i></span>
                         </th>
-                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600;" title="Click to sort by Custom Properties">
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 8px 12px; color: var(--text-white); font-weight: 600; min-width: 220px;" title="Click to sort by Custom Properties">
                             <span class="th-content">Custom Properties <i class="fa-solid fa-sort sort-icon"></i></span>
                         </th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 120px; text-align: center;">Actions</th>
+                        <th style="padding: 8px 12px; color: var(--text-white); font-weight: 600; width: 70px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                 {% if entities %}
                     {% for e in entities %}
                     <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
-                        <td data-sort-val="{{ e['PartitionKey'] }}" style="padding: 12px; font-weight: 600; color: var(--text-white); font-family: var(--font-code);">
+                        <td data-sort-val="{{ e['PartitionKey'] }}" title="{{ e['PartitionKey'] }}" style="padding: 6px 12px; font-weight: 600; color: var(--text-white); font-family: var(--font-code); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; vertical-align: middle;">
                             {{ e['PartitionKey'] }}
                         </td>
-                        <td data-sort-val="{{ e['RowKey'] }}" style="padding: 12px; font-weight: 600; color: var(--text-white); font-family: var(--font-code);">
+                        <td data-sort-val="{{ e['RowKey'] }}" title="{{ e['RowKey'] }}" style="padding: 6px 12px; font-weight: 600; color: var(--text-white); font-family: var(--font-code); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; vertical-align: middle;">
                             {{ e['RowKey'] }}
                         </td>
-                        <td style="padding: 12px; color: var(--text-normal); font-size: 13px; line-height: 1.5; white-space: pre-wrap;">
+                        <td style="padding: 6px 12px; vertical-align: middle;">
+                            <div class="entity-props-container">
+                            {% set has_custom = false %}
                             {% for k,v in e.items() if k not in ['PartitionKey','RowKey','etag','Timestamp'] %}
-                                <div style="margin-bottom: 2px;">
-                                    <strong style="color: var(--accent-blue);">{{ k }}</strong>: <span style="color: var(--text-normal);">{{ v }}</span>
-                                </div>
+                                {% set has_custom = true %}
+                                <span class="entity-prop-chip" title="{{ k }}: {{ v }}">
+                                    <span class="prop-key">{{ k }}</span><span class="prop-sep">:</span><span class="prop-val">{{ v }}</span>
+                                </span>
                             {% endfor %}
+                            </div>
                             <script id="table-entity-data-{{ loop.index }}" type="application/json">{{ e|tojson|safe }}</script>
                         </td>
                         <!-- Actions 3-dot dropdown -->
-                        <td style="padding: 12px; text-align: center; position: relative;">
+                        <td style="padding: 6px 12px; text-align: center; position: relative; vertical-align: middle;">
                             <div class="action-dropdown">
                                 <button type="button" class="action-dropdown-btn" onclick="toggleActionDropdown(event, this)" title="Actions">
                                     <i class="fa-solid fa-ellipsis-vertical"></i>
@@ -163,13 +201,13 @@
 
         <!-- Table Listing -->
         <div class="table-responsive">
-            <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+            <table class="table table-bordered table-sm align-middle small table-compact" style="width: 100%; border-collapse: collapse; text-align: left;">
                 <thead>
                     <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
-                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 12px; color: var(--text-white); font-weight: 600;" title="Click to sort by Table Name">
+                        <th class="sortable-th" data-sort-type="text" onclick="sortTable(this)" style="padding: 8px 12px; color: var(--text-white); font-weight: 600;" title="Click to sort by Table Name">
                             <span class="th-content">Table Name <i class="fa-solid fa-sort sort-icon"></i></span>
                         </th>
-                        <th style="padding: 12px; color: var(--text-white); font-weight: 600; width: 220px; text-align: center;">Actions</th>
+                        <th style="padding: 8px 12px; color: var(--text-white); font-weight: 600; width: 180px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>

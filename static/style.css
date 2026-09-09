@@ -3087,4 +3087,133 @@ body.light-theme .sortable-th.sorted-desc .sort-icon {
     color: #0078d4 !important;
 }
 
+/* ==========================================================================
+   Date Filter Inputs & Toolbar Controls
+   ========================================================================== */
+
+input[type="date"] {
+    color-scheme: dark;
+    color: var(--text-normal);
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    outline: none;
+    transition: var(--transition-fast);
+}
+
+input[type="date"]:focus {
+    border-color: var(--accent-blue);
+    box-shadow: 0 0 0 2px rgba(0, 162, 237, 0.2);
+}
+
+body.light-theme input[type="date"] {
+    color-scheme: light;
+    color: #1e293b;
+    background-color: #ffffff;
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
+body.light-theme input[type="date"]:focus {
+    border-color: #0078d4;
+    box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+}
+
+.date-filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 6px 12px;
+}
+
+body.light-theme .date-filter-group {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* ==========================================================================
+   Compact Table Entities & Property Chips
+   ========================================================================== */
+
+.table-compact th {
+    padding: 8px 12px !important;
+    font-size: 12px !important;
+}
+
+.table-compact td {
+    padding: 7px 12px !important;
+    font-size: 12px !important;
+}
+
+.entity-props-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    align-items: center;
+}
+
+.entity-prop-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 11.5px;
+    line-height: 1.35;
+    transition: background-color var(--transition-fast), border-color var(--transition-fast);
+    word-break: break-all;
+    max-width: 100%;
+}
+
+.entity-prop-chip:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.16);
+}
+
+body.light-theme .entity-prop-chip {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+body.light-theme .entity-prop-chip:hover {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
+.entity-prop-chip .prop-key {
+    color: var(--accent-blue);
+    font-weight: 600;
+    font-size: 11px;
+    font-family: var(--font-code);
+}
+
+body.light-theme .entity-prop-chip .prop-key {
+    color: #0078d4;
+}
+
+.entity-prop-chip .prop-sep {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-right: 1px;
+}
+
+.entity-prop-chip .prop-val {
+    color: var(--text-normal);
+    font-family: var(--font-code);
+    font-size: 11.5px;
+}
+
+body.light-theme .entity-prop-chip .prop-val {
+    color: #1e293b;
+}
+
+
 

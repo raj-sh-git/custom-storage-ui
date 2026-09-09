@@ -9,7 +9,7 @@ import mimetypes
 import csv
 import openpyxl
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Flask, render_template, request, redirect, url_for, session, send_file, flash, Blueprint, jsonify
 from flask_session import Session
 from werkzeug.utils import secure_filename
@@ -454,6 +454,23 @@ def view_blobs(container_name):
     if sort_order not in ['asc', 'desc']:
         sort_order = 'asc'
 
+    # Date range filter parameters (YYYY-MM-DD)
+    from_date_str = request.args.get('from_date', '').strip()
+    to_date_str = request.args.get('to_date', '').strip()
+
+    from_dt = None
+    to_dt = None
+    if from_date_str:
+        try:
+            from_dt = datetime.strptime(from_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        except Exception:
+            from_dt = None
+    if to_date_str:
+        try:
+            to_dt = datetime.strptime(to_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
+        except Exception:
+            to_dt = None
+
     # List blobs
     try:
         raw_blobs = list(container_client.list_blobs())
@@ -466,6 +483,22 @@ def view_blobs(container_name):
         filtered_blobs = [b for b in raw_blobs if search_query.lower() in b.name.lower()]
     else:
         filtered_blobs = raw_blobs
+
+    # Filter by date range if provided
+    if from_dt or to_dt:
+        date_filtered = []
+        for b in filtered_blobs:
+            lm = getattr(b, 'last_modified', None)
+            if not lm:
+                continue
+            if lm.tzinfo is None:
+                lm = lm.replace(tzinfo=timezone.utc)
+            if from_dt and lm < from_dt:
+                continue
+            if to_dt and lm > to_dt:
+                continue
+            date_filtered.append(b)
+        filtered_blobs = date_filtered
 
     # Global Sort before pagination
     reverse = (sort_order == 'desc')
@@ -518,7 +551,9 @@ def view_blobs(container_name):
         page_end=page_end,
         search_query=search_query,
         sort_by=sort_by,
-        sort_order=sort_order
+        sort_order=sort_order,
+        from_date=from_date_str,
+        to_date=to_date_str
     )
 
 @ui.route('/blobs/<container_name>/delete-multiple', methods=['POST'])
@@ -916,20 +951,62 @@ def list_files(share):
             
         return redirect(url_for('ui.list_files', share=share))
 
+    from_date_str = request.args.get('from_date', '').strip()
+    to_date_str = request.args.get('to_date', '').strip()
+
+    from_dt = None
+    to_dt = None
+    if from_date_str:
+        try:
+            from_dt = datetime.strptime(from_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        except Exception:
+            from_dt = None
+    if to_date_str:
+        try:
+            to_dt = datetime.strptime(to_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
+        except Exception:
+            to_dt = None
+
     try:
         root = client.get_directory_client('')
-        items = list(root.list_directories_and_files())
+        raw_items = list(root.list_directories_and_files())
     except Exception as e:
         flash(f"Error listing files: {e}")
-        items = []
-        
+        raw_items = []
+
+    if from_dt or to_dt:
+        filtered_items = []
+        for item in raw_items:
+            lm = getattr(item, 'last_modified', None)
+            if lm:
+                if getattr(lm, 'tzinfo', None) is None:
+                    lm = lm.replace(tzinfo=timezone.utc)
+                if from_dt and lm < from_dt:
+                    continue
+                if to_dt and lm > to_dt:
+                    continue
+            filtered_items.append(item)
+        items = filtered_items
+    else:
+        items = raw_items
+
     tree = load_sidebar_tree()
     try:
         all_shares = [s.name for s in get_share_service().list_shares()]
     except Exception:
         all_shares = [share]
 
-    return render_template('fileshares.html', share=share, items=items, all_shares=all_shares, sidebar_tree=tree, active_service='fileshares', active_item=share)
+    return render_template(
+        'fileshares.html',
+        share=share,
+        items=items,
+        all_shares=all_shares,
+        sidebar_tree=tree,
+        active_service='fileshares',
+        active_item=share,
+        from_date=from_date_str,
+        to_date=to_date_str
+    )
 
 @ui.route('/fileshares/<share>/upload', methods=['POST'])
 def upload_file(share):
@@ -1252,6 +1329,22 @@ def view_queue(queue):
         flash(f"Error peeking queue: {e}")
         return redirect(url_for('ui.queues'))
 
+    from_date_str = request.args.get('from_date', '').strip()
+    to_date_str = request.args.get('to_date', '').strip()
+
+    from_dt = None
+    to_dt = None
+    if from_date_str:
+        try:
+            from_dt = datetime.strptime(from_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        except Exception:
+            from_dt = None
+    if to_date_str:
+        try:
+            to_dt = datetime.strptime(to_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
+        except Exception:
+            to_dt = None
+
     for m in messages:
         decoded_text, is_b64 = decode_message_payload(m.content)
         m.raw_content = m.content
@@ -1267,6 +1360,20 @@ def view_queue(queue):
         m.dequeue_count = getattr(m, 'dequeue_count', 0)
         m.encoded_json = json.dumps(m.content)
 
+    if from_dt or to_dt:
+        filtered_msgs = []
+        for m in messages:
+            it = getattr(m, 'inserted_on', None) or getattr(m, 'insertion_time', None)
+            if it:
+                if getattr(it, 'tzinfo', None) is None:
+                    it = it.replace(tzinfo=timezone.utc)
+                if from_dt and it < from_dt:
+                    continue
+                if to_dt and it > to_dt:
+                    continue
+            filtered_msgs.append(m)
+        messages = filtered_msgs
+
     # Get list of all queue names for the Send/Move to Another Queue dropdown
     try:
         all_queues = [q.name for q in svc.list_queues()]
@@ -1274,7 +1381,17 @@ def view_queue(queue):
         all_queues = [queue]
 
     tree = load_sidebar_tree()
-    return render_template('queues.html', queue=queue, messages=messages, all_queues=all_queues, sidebar_tree=tree, active_service='queues', active_item=queue)
+    return render_template(
+        'queues.html',
+        queue=queue,
+        messages=messages,
+        all_queues=all_queues,
+        sidebar_tree=tree,
+        active_service='queues',
+        active_item=queue,
+        from_date=from_date_str,
+        to_date=to_date_str
+    )
 
 @ui.route('/queues/<queue>/enqueue', methods=['POST'])
 def enqueue(queue):
@@ -1606,24 +1723,64 @@ def view_table(table_name):
     if not require_auth():
         return redirect(url_for('ui.login'))
 
+    from_date_str = request.args.get('from_date', '').strip()
+    to_date_str = request.args.get('to_date', '').strip()
+
+    from_dt = None
+    to_dt = None
+    if from_date_str:
+        try:
+            from_dt = datetime.strptime(from_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        except Exception:
+            from_dt = None
+    if to_date_str:
+        try:
+            to_dt = datetime.strptime(to_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
+        except Exception:
+            to_dt = None
+
     client = get_table_service().get_table_client(table_name)
     try:
         entities_iter = client.query_entities(query_filter="")
         entities = []
         for i, ent in enumerate(entities_iter):
-            if i >= 50:
+            if i >= 100:
                 break
             entities.append(ent)
     except Exception as e:
         flash(f"Error reading table: {e}")
         return redirect(url_for('ui.tables'))
 
+    if from_dt or to_dt:
+        filtered_entities = []
+        for ent in entities:
+            ts = ent.get('Timestamp')
+            if ts and isinstance(ts, datetime):
+                if getattr(ts, 'tzinfo', None) is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if from_dt and ts < from_dt:
+                    continue
+                if to_dt and ts > to_dt:
+                    continue
+            filtered_entities.append(ent)
+        entities = filtered_entities
+
     tree = load_sidebar_tree()
     try:
         all_tables = [t.name if hasattr(t, "name") else str(t) for t in get_table_service().list_tables()]
     except Exception:
         all_tables = [table_name]
-    return render_template('tables.html', entities=entities, table_name=table_name, all_tables=all_tables, sidebar_tree=tree, active_service='tables', active_item=table_name)
+    return render_template(
+        'tables.html',
+        entities=entities,
+        table_name=table_name,
+        all_tables=all_tables,
+        sidebar_tree=tree,
+        active_service='tables',
+        active_item=table_name,
+        from_date=from_date_str,
+        to_date=to_date_str
+    )
 
 @ui.route('/tables/<table_name>/add', methods=['POST'])
 def add_entity(table_name):
