@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+
+{% block title %}Activity Logs - StorageUI{% endblock %}
+
+{% block content %}
+<div class="glass-card" style="border-radius: 12px; padding: 24px;">
+    
+    <!-- Top Header -->
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 18px; flex-wrap: wrap; gap: 14px;">
+        <div>
+            <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-clipboard-list" style="color: var(--success);"></i>
+                Activity Audit Logs
+            </h3>
+            <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 4px;">
+                Complete chronological audit trail of all operations, resource mutations, user logins, and administrative changes.
+            </p>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <!-- Export CSV -->
+            <a href="{{ url_for('ui.export_activity_logs', format='csv', service=filter_service, username=filter_username, from_date=from_date, to_date=to_date, status=filter_status) }}" class="btn btn-neutral btn-sm" style="display: flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-file-csv" style="color: var(--success);"></i> Export CSV
+            </a>
+            <!-- Export JSON -->
+            <a href="{{ url_for('ui.export_activity_logs', format='json', service=filter_service, username=filter_username, from_date=from_date, to_date=to_date, status=filter_status) }}" class="btn btn-neutral btn-sm" style="display: flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-file-code" style="color: var(--accent-blue);"></i> Export JSON
+            </a>
+        </div>
+    </div>
+
+    <!-- Filter Toolbar -->
+    <div class="glass-card" style="padding: 16px; border-radius: 10px; margin-top: 20px; box-shadow: none;">
+        <form method="GET" action="{{ url_for('ui.activity_logs') }}" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+            <!-- Service Filter -->
+            <div style="display: flex; flex-direction: column; gap: 4px; min-width: 130px;">
+                <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Service</span>
+                <select name="service" class="form-control db-select" style="height: 32px; font-size: 12px;">
+                    <option value="all" {% if not filter_service or filter_service == 'all' %}selected{% endif %}>All Services</option>
+                    <option value="blob" {% if filter_service == 'blob' %}selected{% endif %}>Blobs</option>
+                    <option value="file" {% if filter_service == 'file' %}selected{% endif %}>File Shares</option>
+                    <option value="queue" {% if filter_service == 'queue' %}selected{% endif %}>Queues</option>
+                    <option value="table" {% if filter_service == 'table' %}selected{% endif %}>Tables</option>
+                    <option value="auth" {% if filter_service == 'auth' %}selected{% endif %}>Authentication</option>
+                    <option value="user_mgmt" {% if filter_service == 'user_mgmt' %}selected{% endif %}>User Management</option>
+                </select>
+            </div>
+
+            <!-- Username Filter -->
+            <div style="display: flex; flex-direction: column; gap: 4px; min-width: 140px;">
+                <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Username</span>
+                <input type="text" name="username" value="{{ filter_username or '' }}" placeholder="Filter by user..." style="padding: 4px 10px; font-size: 12px; height: 32px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-white);">
+            </div>
+
+            <!-- Status Filter -->
+            <div style="display: flex; flex-direction: column; gap: 4px; min-width: 110px;">
+                <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">Status</span>
+                <select name="status" class="form-control db-select" style="height: 32px; font-size: 12px;">
+                    <option value="all" {% if not filter_status or filter_status == 'all' %}selected{% endif %}>All Status</option>
+                    <option value="SUCCESS" {% if filter_status == 'SUCCESS' %}selected{% endif %}>Success</option>
+                    <option value="FAILED" {% if filter_status == 'FAILED' %}selected{% endif %}>Failed</option>
+                </select>
+            </div>
+
+            <!-- Date Range From -->
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">From Date</span>
+                <input type="date" name="from_date" value="{{ from_date or '' }}" style="padding: 4px 8px; font-size: 12px; height: 32px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-white);">
+            </div>
+
+            <!-- Date Range To -->
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">To Date</span>
+                <input type="date" name="to_date" value="{{ to_date or '' }}" style="padding: 4px 8px; font-size: 12px; height: 32px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-white);">
+            </div>
+
+            <!-- Submit Filter -->
+            <button type="submit" class="btn btn-primary btn-sm" style="height: 32px; padding: 0 12px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+                <i class="fa-solid fa-filter"></i> Apply Filters
+            </button>
+
+            <!-- Clear Filter -->
+            <a href="{{ url_for('ui.activity_logs') }}" class="btn btn-neutral btn-sm" style="height: 32px; padding: 0 10px; font-size: 12px; display: flex; align-items: center; gap: 4px;" title="Reset filters">
+                <i class="fa-solid fa-xmark"></i> Clear
+            </a>
+        </form>
+    </div>
+
+    <!-- Logs Table -->
+    <div class="table-responsive" style="margin-top: 14px;">
+        <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left;">
+            <thead>
+                <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
+                    <th style="padding: 10px 12px; color: var(--text-white); font-weight: 600; width: 165px;">Timestamp (UTC)</th>
+                    <th style="padding: 10px 12px; color: var(--text-white); font-weight: 600; width: 140px;">User & Role</th>
+                    <th style="padding: 10px 12px; color: var(--text-white); font-weight: 600; width: 110px;">Service</th>
+                    <th style="padding: 10px 12px; color: var(--text-white); font-weight: 600; width: 160px;">Action</th>
+                    <th style="padding: 10px 12px; color: var(--text-white); font-weight: 600;">Resource / Target</th>
+                    <th style="padding: 10px 12px; color: var(--text-white); font-weight: 600; width: 120px;">Client IP</th>
+                    <th style="padding: 10px 12px; color: var(--text-white); font-weight: 600; width: 90px; text-align: center;">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% if logs %}
+                {% for l in logs %}
+                <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
+                    <!-- Timestamp -->
+                    <td style="padding: 8px 12px; color: var(--text-muted); font-size: 11.5px; font-family: var(--font-code); white-space: nowrap;">
+                        {{ l.timestamp_formatted or l.timestamp }}
+                    </td>
+
+                    <!-- User & Role -->
+                    <td style="padding: 8px 12px; white-space: nowrap;">
+                        <span style="font-weight: 600; color: var(--text-white); font-size: 12.5px;">{{ l.username }}</span>
+                        <span class="badge {% if l.role == 'admin' %}badge-warning{% elif l.role == 'contributor' %}badge-success{% else %}badge-purple{% endif %}" style="font-size: 9px; padding: 1px 5px; margin-left: 4px;">
+                            {{ l.role }}
+                        </span>
+                    </td>
+
+                    <!-- Service Badge -->
+                    <td style="padding: 8px 12px;">
+                        {% if l.service == 'blob' %}
+                            <span class="badge badge-blue" style="font-size: 10px;"><i class="fa-solid fa-folder" style="margin-right: 3px;"></i> Blob</span>
+                        {% elif l.service == 'file' %}
+                            <span class="badge badge-purple" style="font-size: 10px;"><i class="fa-solid fa-server" style="margin-right: 3px;"></i> File</span>
+                        {% elif l.service == 'queue' %}
+                            <span class="badge badge-success" style="font-size: 10px;"><i class="fa-solid fa-list-ol" style="margin-right: 3px;"></i> Queue</span>
+                        {% elif l.service == 'table' %}
+                            <span class="badge badge-warning" style="font-size: 10px;"><i class="fa-solid fa-table" style="margin-right: 3px;"></i> Table</span>
+                        {% elif l.service == 'auth' %}
+                            <span class="badge badge-neutral" style="font-size: 10px;"><i class="fa-solid fa-key" style="margin-right: 3px;"></i> Auth</span>
+                        {% else %}
+                            <span class="badge badge-neutral" style="font-size: 10px;">{{ l.service }}</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Action Type -->
+                    <td style="padding: 8px 12px;">
+                        <code style="font-size: 11px; font-family: var(--font-code); color: {% if 'DELETE' in l.action or 'FAIL' in l.action or 'DISABLE' in l.action %}#f87171{% elif 'CREATE' in l.action or 'INSERT' in l.action or 'UPLOAD' in l.action %}#34d399{% elif 'EDIT' in l.action or 'UPDATE' in l.action or 'RENAME' in l.action %}#fbbf24{% else %}#38bdf8{% endif %};">
+                            {{ l.action }}
+                        </code>
+                    </td>
+
+                    <!-- Target / Details -->
+                    <td style="padding: 8px 12px; color: var(--text-normal); font-family: var(--font-code); font-size: 11.5px; word-break: break-all;">
+                        {{ l.target }}
+                        {% if l.details %}
+                            <div style="font-size: 10.5px; color: var(--text-muted); font-family: var(--font-body); margin-top: 2px;">
+                                {{ l.details }}
+                            </div>
+                        {% endif %}
+                    </td>
+
+                    <!-- IP Address -->
+                    <td style="padding: 8px 12px; color: var(--text-muted); font-family: var(--font-code); font-size: 11px; white-space: nowrap;">
+                        {{ l.ip_address }}
+                    </td>
+
+                    <!-- Status -->
+                    <td style="padding: 8px 12px; text-align: center;">
+                        {% if l.status == 'SUCCESS' %}
+                            <span class="badge badge-success" style="font-size: 10.5px;">Success</span>
+                        {% else %}
+                            <span class="badge badge-danger" style="font-size: 10.5px;">Failed</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="7" style="padding: 28px; text-align: center; color: var(--text-muted); font-style: italic;">
+                        No activity log entries found matching criteria.
+                    </td>
+                </tr>
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

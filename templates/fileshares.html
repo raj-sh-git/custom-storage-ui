@@ -27,6 +27,7 @@
         <!-- Toolbar (Multi-file Upload & Date Filter) -->
         <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-direction: column; gap: 12px;">
             <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;">
+                {% if user_role != 'reader' %}
                 <!-- Multi-file Upload Form -->
                 <form method="POST" action="{{ url_for('ui.upload_file', share=share) }}" enctype="multipart/form-data" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                     <label class="btn btn-neutral btn-sm" style="margin-bottom: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;">
@@ -38,6 +39,11 @@
                         <i class="fa-solid fa-cloud-arrow-up"></i> Upload Files
                     </button>
                 </form>
+                {% else %}
+                <div style="font-size: 12px; color: var(--text-muted); font-style: italic;">
+                    <i class="fa-solid fa-eye" style="margin-right: 4px;"></i> View-only reader mode
+                </div>
+                {% endif %}
 
                 <!-- Date Range Filter Form (Right of Upload Files) -->
                 <form id="fileShareDateFilterForm" method="GET" action="{{ url_for('ui.list_files', share=share) }}" 
@@ -98,6 +104,7 @@
                                     <i class="fa-solid fa-ellipsis-vertical"></i>
                                 </button>
                                 <div class="action-dropdown-menu">
+                                    {% if user_role != 'reader' %}
                                     <button type="button" class="action-dropdown-item" onclick="openEditShareFileModal('{{ share }}', '{{ i.name }}')">
                                         <i class="fa-solid fa-pen-to-square"></i>
                                         <span>Edit</span>
@@ -110,15 +117,18 @@
                                         <i class="fa-solid fa-arrows-up-down-left-right"></i>
                                         <span>Move / Copy</span>
                                     </button>
+                                    {% endif %}
                                     <a href="{{ url_for('ui.download_file', share=share, filename=i.name) }}" class="action-dropdown-item">
                                         <i class="fa-solid fa-download"></i>
                                         <span>Download</span>
                                     </a>
+                                    {% if user_role != 'reader' %}
                                     <div class="action-dropdown-divider"></div>
                                     <button type="button" class="action-dropdown-item danger" onclick="openDeleteShareFileModal('{{ share }}', '{{ i.name }}')">
                                         <i class="fa-solid fa-trash-can"></i>
                                         <span>Delete</span>
                                     </button>
+                                    {% endif %}
                                 </div>
                             </div>
                             {% else %}
@@ -150,6 +160,7 @@
                 </h3>
                 <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Fully managed cloud file shares using SMB. Create, inspect, or delete shares.</p>
             </div>
+            {% if is_admin %}
             <!-- In-line create share form -->
             <form method="POST" action="{{ url_for('ui.create_share') }}" style="display: flex; align-items: center; gap: 8px;">
                 <div class="input-icon-group">
@@ -160,6 +171,7 @@
                     <i class="fa-solid fa-circle-plus"></i> Create Share
                 </button>
             </form>
+            {% endif %}
         </div>
 
         <!-- Table Listing -->
@@ -185,12 +197,14 @@
                             <a class="btn btn-neutral btn-sm" href="{{ url_for('ui.list_files', share=s.name) }}" style="padding: 4px 8px; font-size: 11px;">
                                 <i class="fa-solid fa-folder-open"></i> Browse
                             </a>
+                            {% if is_admin %}
                             <form method="POST" action="{{ url_for('ui.delete_share') }}" onsubmit="return confirm('Are you sure you want to delete file share \'{{ s.name }}\' and all its contents? This action is irreversible!');">
                                 <input type="hidden" name="name" value="{{ s.name }}">
                                 <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;">
                                     <i class="fa-solid fa-trash-can"></i> Delete
                                 </button>
                             </form>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}

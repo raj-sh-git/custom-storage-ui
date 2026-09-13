@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Connect to Azure Storage - StorageUI{% endblock %}
+{% block title %}{% if storage_connected %}User Sign In - StorageUI{% else %}Connect to Azure Storage - StorageUI{% endif %}{% endblock %}
 
 {% block content %}
 <div class="auth-container">
@@ -18,184 +18,201 @@
                 <h1>Storage<span>UI</span></h1>
                 <div class="version-badge-container" style="margin-left: 4px;">
                     <div class="badge badge-premium version-badge" tabindex="0">
-                        <span>v2.1</span>
+                        <span>v2.2</span>
                         <i class="fa-solid fa-sparkles" style="margin-left: 3px; font-size: 8.5px; opacity: 0.85;"></i>
                     </div>
-                    <div class="version-popover glass-card">
-                        <div class="version-popover-header">
-                            <div class="version-title-wrap">
-                                <span class="version-title">Storage UI v2.1</span>
-                                <span class="version-date">Changelog</span>
-                            </div>
-                            <span class="badge badge-blue">Latest</span>
-                        </div>
-                        <ul class="version-changelog-list">
-                            <li>
-                                <i class="fa-solid fa-check-double" style="color: #10b981;"></i>
-                                <div class="changelog-content">
-                                    <strong>Multi-Select Bulk Deletion:</strong> Select multiple blobs via checkboxes and delete in a single batch.
-                                </div>
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-pen-to-square" style="color: #00a2ed;"></i>
-                                <div class="changelog-content">
-                                    <strong>In-Browser Blob Editor:</strong> View, edit, and save text, JSON, and code files directly to Azure Storage.
-                                </div>
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-magnifying-glass" style="color: #f59e0b;"></i>
-                                <div class="changelog-content">
-                                    <strong>Instant Search Filter:</strong> Real-time instant filtering across blob names and paths.
-                                </div>
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-list-ol" style="color: #10b981;"></i>
-                                <div class="changelog-content">
-                                    <strong>Configurable Pagination:</strong> Choose 10, 15, 20, 50, or 100 items per page with fast slicing.
-                                </div>
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-cloud-arrow-up" style="color: #0078d4;"></i>
-                                <div class="changelog-content">
-                                    <strong>Upload Progress & Timeout Protection:</strong> Live progress tracking with 502/504 gateway timeout handlers.
-                                </div>
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-list-check" style="color: #38bdf8;"></i>
-                                <div class="changelog-content">
-                                    <strong>Queue Multi-Select & Routing:</strong> Select, bulk dequeue, edit messages in-place, and move/copy messages across queues.
-                                </div>
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-shield-halved" style="color: #10b981;"></i>
-                                <div class="changelog-content">
-                                    <strong>Base64 & Plain Enqueue:</strong> Native Base64 encoding to prevent Azure Function poison queues, with smart auto-decoding.
-                                </div>
-                            </li>
-                            <li>
-                                <i class="fa-solid fa-cubes-stacked" style="color: #803fe7;"></i>
-                                <div class="changelog-content">
-                                    <strong>Bulk Resource Studio:</strong> Batch-create containers, queues, tables, and shares via CSV/Excel.
-                                </div>
-                            </li>
-                        </ul>
-                    </div>
                 </div>
             </div>
-            <p>Access your Azure Storage Account with ease. Set up a secure direct connection below.</p>
+            {% if storage_connected %}
+                <p>Welcome back! Sign in with your username and password to access the storage portal.</p>
+            {% else %}
+                <p>Access your Azure Storage Account with ease. Set up a secure direct connection below.</p>
+            {% endif %}
         </div>
 
-        <form action="{{ url_for('ui.login') }}" method="POST" class="auth-form" id="loginForm">
-            <!-- Auth Method Tab Selectors -->
-            <div class="auth-tabs">
-                <label class="auth-tab">
-                    <input type="radio" name="auth_method" value="conn_str" checked onclick="switchAuthTab('conn_str')">
-                    <div class="tab-button">
-                        <i class="fa-solid fa-link"></i>
-                        <span>Connection String</span>
-                    </div>
+        {% if storage_connected %}
+        <!-- ==========================================
+             USER LOGIN FORM (Standard Username + Password)
+             ========================================== -->
+        <form action="{{ url_for('ui.login') }}" method="POST" class="auth-form" id="userLoginForm">
+            <input type="hidden" name="login_type" value="user_auth">
+
+            <div class="input-wrapper">
+                <label for="login_username">Username</label>
+                <div class="input-icon-group">
+                    <i class="fa-solid fa-user icon-inside"></i>
+                    <input type="text" name="username" id="login_username" required autofocus placeholder="e.g. john" style="height: 42px; font-size: 13.5px;">
+                </div>
+            </div>
+
+            <div class="input-wrapper">
+                <label for="login_password">Password</label>
+                <div class="input-icon-group">
+                    <i class="fa-solid fa-lock icon-inside"></i>
+                    <input type="password" name="password" id="login_password" required placeholder="••••••••" style="height: 42px; font-size: 13.5px;">
+                </div>
+            </div>
+
+            <div class="remember-me" style="display: flex; justify-content: space-between; align-items: center;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin-bottom: 0;">
+                    <input type="checkbox" name="remember" id="remember_user" checked style="width: 15px; height: 15px;">
+                    <span>Remember my username</span>
                 </label>
-                <label class="auth-tab">
-                    <input type="radio" name="auth_method" value="key" onclick="switchAuthTab('key')">
-                    <div class="tab-button">
-                        <i class="fa-solid fa-key"></i>
-                        <span>Account Key</span>
-                    </div>
-                </label>
-                <label class="auth-tab">
-                    <input type="radio" name="auth_method" value="sp" onclick="switchAuthTab('sp')">
-                    <div class="tab-button">
-                        <i class="fa-solid fa-users-gear"></i>
-                        <span>Service Principal</span>
-                    </div>
-                </label>
             </div>
 
-            <!-- Tab 1: Connection String -->
-            <div class="form-group-tab active" id="tab-conn_str">
-                <div class="input-wrapper">
-                    <label for="conn_string">Azure Storage Connection String</label>
-                    <div class="input-icon-group">
-                        <i class="fa-solid fa-plug icon-inside"></i>
-                        <textarea name="conn_string" id="conn_string" placeholder="DefaultEndpointsProtocol=https;AccountName=your-account;AccountKey=your-key;..."></textarea>
-                    </div>
-                    <span class="help-text">Enter the full connection string obtained from the Access Keys blade in Azure Portal.</span>
-                </div>
-            </div>
-
-            <!-- Tab 2: Account Key -->
-            <div class="form-group-tab" id="tab-key">
-                <div class="input-wrapper">
-                    <label for="account_name_key">Storage Account Name</label>
-                    <div class="input-icon-group">
-                        <i class="fa-solid fa-globe icon-inside"></i>
-                        <input type="text" name="account_name" id="account_name_key" placeholder="e.g. mystorageaccount">
-                    </div>
-                </div>
-                <div class="input-wrapper">
-                    <label for="account_key">Storage Account Key</label>
-                    <div class="input-icon-group">
-                        <i class="fa-solid fa-lock icon-inside"></i>
-                        <input type="password" name="account_key" id="account_key" placeholder="your-access-key-here">
-                    </div>
-                </div>
-            </div>
-
-            <!-- Tab 3: Service Principal -->
-            <div class="form-group-tab" id="tab-sp">
-                <div class="input-wrapper">
-                    <label for="account_name_sp">Storage Account Name</label>
-                    <div class="input-icon-group">
-                        <i class="fa-solid fa-globe icon-inside"></i>
-                        <input type="text" name="account_name_sp" id="account_name_sp" placeholder="e.g. mystorageaccount">
-                    </div>
-                </div>
-                <div class="input-wrapper">
-                    <label for="tenant_id">Tenant ID</label>
-                    <div class="input-icon-group">
-                        <i class="fa-solid fa-building icon-inside"></i>
-                        <input type="text" name="tenant_id" id="tenant_id" placeholder="00000000-0000-0000-0000-000000000000">
-                    </div>
-                </div>
-                <div class="input-wrapper">
-                    <label for="client_id">Client ID</label>
-                    <div class="input-icon-group">
-                        <i class="fa-solid fa-id-card icon-inside"></i>
-                        <input type="text" name="client_id" id="client_id" placeholder="00000000-0000-0000-0000-000000000000">
-                    </div>
-                </div>
-                <div class="input-wrapper">
-                    <label for="client_secret">Client Secret</label>
-                    <div class="input-icon-group">
-                        <i class="fa-solid fa-key icon-inside"></i>
-                        <input type="password" name="client_secret" id="client_secret" placeholder="your-client-secret">
-                    </div>
-                </div>
-            </div>
-
-            <div class="remember-me">
-                <input type="checkbox" id="remember_credentials" checked>
-                <label for="remember_credentials">Remember Endpoint Details (Saved locally in your browser)</label>
-            </div>
-
-            <button type="submit" class="btn btn-primary btn-block">
-                <span>Connect Securely</span>
+            <button type="submit" class="btn btn-primary btn-block" style="height: 44px; font-size: 14px; font-weight: 600;">
+                <span>Sign In</span>
                 <i class="fa-solid fa-arrow-right-to-bracket"></i>
             </button>
         </form>
+
+        {% if not is_env_managed %}
+        <div style="margin-top: 18px; text-align: center;">
+            <a href="javascript:void(0)" onclick="toggleStorageConnectDrawer()" style="font-size: 12px; color: var(--text-muted); text-decoration: none;">
+                <i class="fa-solid fa-gear" style="margin-right: 4px;"></i> Switch / Reconnect Storage Account
+            </a>
+        </div>
+        {% endif %}
+
+        {% endif %}
+
+        <!-- ==========================================
+             STORAGE BACKEND CONNECTION FORM (If not connected or drawer toggled)
+             ========================================== -->
+        <div id="storageConnectDrawer" style="{% if storage_connected %}display: none; margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 18px;{% endif %}">
+            {% if storage_connected %}
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span style="font-size: 12px; font-weight: 600; color: var(--text-white); text-transform: uppercase;">Direct Storage Reconnect</span>
+                <button type="button" class="btn btn-neutral btn-sm" onclick="toggleStorageConnectDrawer()" style="padding: 2px 8px; font-size: 11px;">Close</button>
+            </div>
+            {% endif %}
+
+            <form action="{{ url_for('ui.connect_storage') }}" method="POST" class="auth-form" id="loginForm">
+                <!-- Auth Method Tab Selectors -->
+                <div class="auth-tabs">
+                    <label class="auth-tab">
+                        <input type="radio" name="auth_method" value="conn_str" checked onclick="switchAuthTab('conn_str')">
+                        <div class="tab-button">
+                            <i class="fa-solid fa-link"></i>
+                            <span>Connection String</span>
+                        </div>
+                    </label>
+                    <label class="auth-tab">
+                        <input type="radio" name="auth_method" value="key" onclick="switchAuthTab('key')">
+                        <div class="tab-button">
+                            <i class="fa-solid fa-key"></i>
+                            <span>Account Key</span>
+                        </div>
+                    </label>
+                    <label class="auth-tab">
+                        <input type="radio" name="auth_method" value="sp" onclick="switchAuthTab('sp')">
+                        <div class="tab-button">
+                            <i class="fa-solid fa-users-gear"></i>
+                            <span>Service Principal</span>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Tab 1: Connection String -->
+                <div class="form-group-tab active" id="tab-conn_str">
+                    <div class="input-wrapper">
+                        <label for="conn_string">Azure Storage Connection String</label>
+                        <div class="input-icon-group">
+                            <i class="fa-solid fa-plug icon-inside"></i>
+                            <textarea name="conn_string" id="conn_string" placeholder="DefaultEndpointsProtocol=https;AccountName=your-account;AccountKey=your-key;..."></textarea>
+                        </div>
+                        <span class="help-text">Enter the full connection string obtained from the Access Keys blade in Azure Portal.</span>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Account Key -->
+                <div class="form-group-tab" id="tab-key">
+                    <div class="input-wrapper">
+                        <label for="account_name_key">Storage Account Name</label>
+                        <div class="input-icon-group">
+                            <i class="fa-solid fa-globe icon-inside"></i>
+                            <input type="text" name="account_name" id="account_name_key" placeholder="e.g. mystorageaccount">
+                        </div>
+                    </div>
+                    <div class="input-wrapper">
+                        <label for="account_key">Storage Account Key</label>
+                        <div class="input-icon-group">
+                            <i class="fa-solid fa-lock icon-inside"></i>
+                            <input type="password" name="account_key" id="account_key" placeholder="your-access-key-here">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Service Principal -->
+                <div class="form-group-tab" id="tab-sp">
+                    <div class="input-wrapper">
+                        <label for="account_name_sp">Storage Account Name</label>
+                        <div class="input-icon-group">
+                            <i class="fa-solid fa-globe icon-inside"></i>
+                            <input type="text" name="account_name_sp" id="account_name_sp" placeholder="e.g. mystorageaccount">
+                        </div>
+                    </div>
+                    <div class="input-wrapper">
+                        <label for="tenant_id">Tenant ID</label>
+                        <div class="input-icon-group">
+                            <i class="fa-solid fa-building icon-inside"></i>
+                            <input type="text" name="tenant_id" id="tenant_id" placeholder="00000000-0000-0000-0000-000000000000">
+                        </div>
+                    </div>
+                    <div class="input-wrapper">
+                        <label for="client_id">Client ID</label>
+                        <div class="input-icon-group">
+                            <i class="fa-solid fa-id-card icon-inside"></i>
+                            <input type="text" name="client_id" id="client_id" placeholder="00000000-0000-0000-0000-000000000000">
+                        </div>
+                    </div>
+                    <div class="input-wrapper">
+                        <label for="client_secret">Client Secret</label>
+                        <div class="input-icon-group">
+                            <i class="fa-solid fa-key icon-inside"></i>
+                            <input type="password" name="client_secret" id="client_secret" placeholder="your-client-secret">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="remember-me">
+                    <input type="checkbox" id="remember_credentials" checked>
+                    <label for="remember_credentials">Remember Endpoint Details (Saved locally in your browser)</label>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block">
+                    <span>Connect Storage Account</span>
+                    <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                </button>
+            </form>
+        </div>
     </div>
 </div>
 
 <script>
+    function toggleStorageConnectDrawer() {
+        const d = document.getElementById('storageConnectDrawer');
+        if (d) d.style.display = d.style.display === 'none' ? 'block' : 'none';
+    }
+
     function switchAuthTab(tabName) {
         document.querySelectorAll('.form-group-tab').forEach(el => {
             el.classList.remove('active');
         });
-        document.getElementById('tab-' + tabName).classList.add('active');
+        const target = document.getElementById('tab-' + tabName);
+        if (target) target.classList.add('active');
     }
 
-    // Auto-load values from localStorage on page load
+    // Auto-load remembered username or connection values
     document.addEventListener("DOMContentLoaded", function() {
+        const rememberedUser = localStorage.getItem("storage_ui_remembered_username");
+        const uInput = document.getElementById("login_username");
+        if (rememberedUser && uInput) {
+            uInput.value = rememberedUser;
+            const pInput = document.getElementById("login_password");
+            if (pInput) pInput.focus();
+        }
+
         const storedMethod = localStorage.getItem("storage_auth_method");
         const storedConn = localStorage.getItem("storage_conn_str");
         const storedAccountNameKey = localStorage.getItem("storage_account_name_key");
@@ -211,37 +228,54 @@
             }
         }
 
-        if (storedConn) document.getElementById("conn_string").value = storedConn;
-        if (storedAccountNameKey) document.getElementById("account_name_key").value = storedAccountNameKey;
-        if (storedAccountNameSp) document.getElementById("account_name_sp").value = storedAccountNameSp;
-        if (storedTenant) document.getElementById("tenant_id").value = storedTenant;
-        if (storedClient) document.getElementById("client_id").value = storedClient;
+        if (storedConn && document.getElementById("conn_string")) document.getElementById("conn_string").value = storedConn;
+        if (storedAccountNameKey && document.getElementById("account_name_key")) document.getElementById("account_name_key").value = storedAccountNameKey;
+        if (storedAccountNameSp && document.getElementById("account_name_sp")) document.getElementById("account_name_sp").value = storedAccountNameSp;
+        if (storedTenant && document.getElementById("tenant_id")) document.getElementById("tenant_id").value = storedTenant;
+        if (storedClient && document.getElementById("client_id")) document.getElementById("client_id").value = storedClient;
     });
 
-    // Save values to localStorage on submit
-    document.getElementById("loginForm").addEventListener("submit", function() {
-        const remember = document.getElementById("remember_credentials").checked;
-        const method = document.querySelector('input[name="auth_method"]:checked').value;
-        
-        if (remember) {
-            localStorage.setItem("storage_auth_method", method);
-            if (method === "conn_str") {
-                localStorage.setItem("storage_conn_str", document.getElementById("conn_string").value);
-            } else if (method === "key") {
-                localStorage.setItem("storage_account_name_key", document.getElementById("account_name_key").value);
-            } else if (method === "sp") {
-                localStorage.setItem("storage_account_name_sp", document.getElementById("account_name_sp").value);
-                localStorage.setItem("storage_tenant_id", document.getElementById("tenant_id").value);
-                localStorage.setItem("storage_client_id", document.getElementById("client_id").value);
+    const userLoginForm = document.getElementById("userLoginForm");
+    if (userLoginForm) {
+        userLoginForm.addEventListener("submit", function() {
+            const remember = document.getElementById("remember_user")?.checked;
+            const u = document.getElementById("login_username")?.value.trim();
+            if (remember && u) {
+                localStorage.setItem("storage_ui_remembered_username", u);
+            } else {
+                localStorage.removeItem("storage_ui_remembered_username");
             }
-        } else {
-            localStorage.removeItem("storage_auth_method");
-            localStorage.removeItem("storage_conn_str");
-            localStorage.removeItem("storage_account_name_key");
-            localStorage.removeItem("storage_account_name_sp");
-            localStorage.removeItem("storage_tenant_id");
-            localStorage.removeItem("storage_client_id");
-        }
-    });
+        });
+    }
+
+    const loginForm = document.getElementById("loginForm");
+    if (loginForm) {
+        loginForm.addEventListener("submit", function() {
+            const remember = document.getElementById("remember_credentials")?.checked;
+            const methodInput = document.querySelector('input[name="auth_method"]:checked');
+            if (!methodInput) return;
+            const method = methodInput.value;
+            
+            if (remember) {
+                localStorage.setItem("storage_auth_method", method);
+                if (method === "conn_str" && document.getElementById("conn_string")) {
+                    localStorage.setItem("storage_conn_str", document.getElementById("conn_string").value);
+                } else if (method === "key" && document.getElementById("account_name_key")) {
+                    localStorage.setItem("storage_account_name_key", document.getElementById("account_name_key").value);
+                } else if (method === "sp" && document.getElementById("account_name_sp")) {
+                    localStorage.setItem("storage_account_name_sp", document.getElementById("account_name_sp").value);
+                    localStorage.setItem("storage_tenant_id", document.getElementById("tenant_id").value);
+                    localStorage.setItem("storage_client_id", document.getElementById("client_id").value);
+                }
+            } else {
+                localStorage.removeItem("storage_auth_method");
+                localStorage.removeItem("storage_conn_str");
+                localStorage.removeItem("storage_account_name_key");
+                localStorage.removeItem("storage_account_name_sp");
+                localStorage.removeItem("storage_tenant_id");
+                localStorage.removeItem("storage_client_id");
+            }
+        });
+    }
 </script>
 {% endblock %}

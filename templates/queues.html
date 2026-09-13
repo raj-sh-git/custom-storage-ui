@@ -22,6 +22,7 @@
                 </p>
             </div>
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                {% if user_role != 'reader' %}
                 <!-- Enqueue Message Action -->
                 <button type="button" class="btn btn-primary btn-sm" onclick="openEnqueueModal('{{ queue }}')" style="background-color: var(--success); border-color: var(--success); display: flex; align-items: center; gap: 6px;">
                     <i class="fa-solid fa-circle-plus"></i> Enqueue Message
@@ -30,10 +31,13 @@
                 <button type="button" class="btn btn-neutral btn-sm" onclick="openDequeueAllModal('{{ queue }}')" title="Dequeue and permanently purge all messages in this queue" style="border-color: rgba(239, 68, 68, 0.4); color: #f87171; display: flex; align-items: center; gap: 6px;">
                     <i class="fa-solid fa-broom"></i> Dequeue All
                 </button>
+                {% endif %}
+                {% if is_admin %}
                 <!-- Delete Queue Action -->
                 <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteQueueModal('{{ queue }}')" style="display: flex; align-items: center; gap: 6px;" title="Delete this queue node">
                     <i class="fa-solid fa-trash-can"></i> Delete Queue
                 </button>
+                {% endif %}
                 <!-- Back Link -->
                 <a href="{{ url_for('ui.queues') }}" class="btn btn-neutral btn-sm">
                     <i class="fa-solid fa-arrow-left"></i> Back to Queues
@@ -83,6 +87,7 @@
             <!-- Dynamic Bulk Actions Toolbar -->
             <div id="queueBulkActionsToolbar" class="bulk-actions-toolbar" style="display: none; align-items: center; gap: 8px;">
                 <span class="badge badge-blue font-mono" id="selectedQueueCountBadge">0 selected</span>
+                {% if user_role != 'reader' %}
                 <!-- Send / Move Selected to Another Queue -->
                 <button type="button" class="btn btn-neutral btn-sm" onclick="openSendToQueueModal('{{ queue }}')" style="display: flex; align-items: center; gap: 6px;" title="Send or move selected messages to another queue">
                     <i class="fa-solid fa-paper-plane" style="color: var(--accent-blue);"></i>
@@ -93,6 +98,7 @@
                     <i class="fa-solid fa-trash-can"></i>
                     <span>Dequeue Selected</span>
                 </button>
+                {% endif %}
                 <!-- Deselect All -->
                 <button type="button" class="btn btn-neutral btn-sm" onclick="deselectAllQueueMsgs()" title="Deselect all">
                     <i class="fa-solid fa-xmark"></i>
@@ -199,6 +205,7 @@
                                     <i class="fa-solid fa-ellipsis-vertical"></i>
                                 </button>
                                 <div class="action-dropdown-menu">
+                                    {% if user_role != 'reader' %}
                                     <button type="button" class="action-dropdown-item" onclick="openEditQueueMsgModal('{{ queue }}', '{{ m.id }}')">
                                         <i class="fa-solid fa-pen-to-square"></i>
                                         <span>Edit Message</span>
@@ -207,6 +214,7 @@
                                         <i class="fa-solid fa-paper-plane" style="color: var(--accent-blue);"></i>
                                         <span>Send / Move to Queue</span>
                                     </button>
+                                    {% endif %}
                                     <button type="button" class="action-dropdown-item" onclick="copyQueueMsgPayload({{ loop.index }})">
                                         <i class="fa-solid fa-copy"></i>
                                         <span>Copy Payload</span>
@@ -215,11 +223,13 @@
                                         <i class="fa-solid fa-fingerprint"></i>
                                         <span>Copy Message ID</span>
                                     </button>
+                                    {% if user_role != 'reader' %}
                                     <div class="action-dropdown-divider"></div>
                                     <button type="button" class="action-dropdown-item danger" onclick="openSingleDequeueModal('{{ queue }}', '{{ m.id }}')">
                                         <i class="fa-solid fa-trash-can"></i>
                                         <span>Dequeue (Delete)</span>
                                     </button>
+                                    {% endif %}
                                 </div>
                             </div>
                         </td>
@@ -253,6 +263,7 @@
                 </h3>
                 <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Queue services partition message backlogs. Create, browse, or delete queue nodes.</p>
             </div>
+            {% if is_admin %}
             <!-- In-line create queue form -->
             <form method="POST" action="{{ url_for('ui.create_queue') }}" style="display: flex; align-items: center; gap: 8px;">
                 <div class="input-icon-group">
@@ -263,6 +274,7 @@
                     <i class="fa-solid fa-circle-plus"></i> Create Queue
                 </button>
             </form>
+            {% endif %}
         </div>
 
         <!-- Table Listing -->
@@ -288,9 +300,11 @@
                             <a class="btn btn-neutral btn-sm" href="{{ url_for('ui.view_queue', queue=q.name) }}" style="padding: 4px 8px; font-size: 11px;">
                                 <i class="fa-solid fa-folder-open"></i> Browse
                             </a>
+                            {% if is_admin %}
                             <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteQueueModal('{{ q.name }}')" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;" title="Delete Message Queue">
                                 <i class="fa-solid fa-trash-can"></i> Delete
                             </button>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
@@ -630,7 +644,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-neutral" onclick="closeModal('dequeueAllModal')">Cancel</button>
-                <form method="POST" action="{{ url_for('ui.dequeue_all', queue=queue) }}" style="display: inline;">
+                <form method="POST" action="{{ url_for('ui.dequeue_all_messages', queue=queue) }}" style="display: inline;">
                     <button type="submit" class="btn btn-danger" style="display: flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-trash-can"></i>
                         <span>Yes, Dequeue All</span>

@@ -19,7 +19,7 @@
                 </h3>
                 <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Insert new key-value entities, perform queries, or delete entries inside this NoSQL table.</p>
             </div>
-            <a href="{{ url_for('ui.tables') }}" class="btn btn-neutral btn-sm">
+            <a href="{{ url_for('ui.list_tables') }}" class="btn btn-neutral btn-sm">
                 <i class="fa-solid fa-arrow-left"></i> Back to Tables
             </a>
         </div>
@@ -27,6 +27,7 @@
         <!-- Toolbar (Insert Entity Form & Date Filter) -->
         <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-direction: column; gap: 14px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px;">
+                {% if user_role != 'reader' %}
                 <!-- Insert Entity Form -->
                 <div>
                     <h5 style="font-size: 12px; font-weight: 600; color: var(--text-white); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -62,6 +63,11 @@
                         </button>
                     </form>
                 </div>
+                {% else %}
+                <div style="font-size: 12px; color: var(--text-muted); font-style: italic;">
+                    <i class="fa-solid fa-eye" style="margin-right: 4px;"></i> View-only reader mode
+                </div>
+                {% endif %}
 
                 <!-- Date Range Filter Form (Right Side) -->
                 <div>
@@ -137,7 +143,8 @@
                                 <button type="button" class="action-dropdown-btn" onclick="toggleActionDropdown(event, this)" title="Actions">
                                     <i class="fa-solid fa-ellipsis-vertical"></i>
                                 </button>
-                                <div class="action-dropdown-menu">
+                                 <div class="action-dropdown-menu">
+                                    {% if user_role != 'reader' %}
                                     <button type="button" class="action-dropdown-item" onclick="openEditTableEntityModal('{{ table_name }}', '{{ e['PartitionKey'] }}', '{{ e['RowKey'] }}', {{ loop.index }})">
                                         <i class="fa-solid fa-pen-to-square"></i>
                                         <span>Edit Entity</span>
@@ -150,15 +157,18 @@
                                         <i class="fa-solid fa-arrows-up-down-left-right"></i>
                                         <span>Copy to Table</span>
                                     </button>
+                                    {% endif %}
                                     <button type="button" class="action-dropdown-item" onclick="copyTableEntityJson({{ loop.index }})">
                                         <i class="fa-solid fa-code"></i>
                                         <span>Copy JSON</span>
                                     </button>
+                                    {% if user_role != 'reader' %}
                                     <div class="action-dropdown-divider"></div>
                                     <button type="button" class="action-dropdown-item danger" onclick="openDeleteTableEntityModal('{{ table_name }}', '{{ e['PartitionKey'] }}', '{{ e['RowKey'] }}')">
                                         <i class="fa-solid fa-trash-can"></i>
                                         <span>Delete Entity</span>
                                     </button>
+                                    {% endif %}
                                 </div>
                             </div>
                         </td>
@@ -187,6 +197,7 @@
                 </h3>
                 <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Table storage partitions structured NoSQL entities. Create, browse, or delete table targets.</p>
             </div>
+            {% if is_admin %}
             <!-- In-line create table form -->
             <form method="POST" action="{{ url_for('ui.create_table') }}" style="display: flex; align-items: center; gap: 8px;">
                 <div class="input-icon-group">
@@ -197,6 +208,7 @@
                     <i class="fa-solid fa-circle-plus"></i> Create Table
                 </button>
             </form>
+            {% endif %}
         </div>
 
         <!-- Table Listing -->
@@ -211,8 +223,9 @@
                     </tr>
                 </thead>
                 <tbody>
-                {% if table_names %}
-                    {% for t in table_names %}
+                {% set display_tables = tables if tables is defined and tables else table_names %}
+                {% if display_tables %}
+                    {% for t in display_tables %}
                     <tr style="border-bottom: 1px solid var(--border-color); transition: var(--transition-fast);">
                         <td data-sort-val="{{ t }}" style="padding: 12px; font-weight: 500; color: var(--text-white);">
                             <i class="fa-solid fa-table-cells" style="color: var(--warning); margin-right: 8px;"></i>
@@ -222,12 +235,14 @@
                             <a class="btn btn-neutral btn-sm" href="{{ url_for('ui.view_table', table_name=t) }}" style="padding: 4px 8px; font-size: 11px;">
                                 <i class="fa-solid fa-folder-open"></i> Browse
                             </a>
+                            {% if is_admin %}
                             <form method="POST" action="{{ url_for('ui.delete_table') }}" onsubmit="return confirm('Are you sure you want to delete NoSQL table \'{{ t }}\' and all its contents? This action is irreversible!');">
-                                <input type="hidden" name="name" value="{{ t }}">
+                                <input type="hidden" name="table_name" value="{{ t }}">
                                 <button class="btn btn-danger btn-sm" style="padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px;">
                                     <i class="fa-solid fa-trash-can"></i> Delete
                                 </button>
                             </form>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}

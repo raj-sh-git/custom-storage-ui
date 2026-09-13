@@ -10,18 +10,23 @@ import csv
 import openpyxl
 import zipfile
 from datetime import datetime, timezone
-from flask import Flask, render_template, request, redirect, url_for, session, send_file, flash, Blueprint, jsonify
+from flask import (
+    Flask, render_template, request, redirect, url_for, session,
+    send_file, flash, Blueprint, jsonify, Response, abort, has_request_context
+)
 from flask_session import Session
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import generate_password_hash, check_password_hash
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.storage.fileshare import ShareServiceClient
 from azure.storage.queue import QueueServiceClient
 from azure.data.tables import TableServiceClient, TableEntity, UpdateMode
 from azure.core.exceptions import ResourceNotFoundError, HttpResponseError
+from azure.identity import DefaultAzureCredential, ClientSecretCredential
 
 # -----------------------
-# Simple config
+# App Configuration
 # -----------------------
 app = Flask(__name__, static_url_path="/storage-ui/static")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -39,6 +44,20 @@ app.config.update(
 )
 Session(app)
 
+# System Table Names (configurable via environment variables)
+USER_TABLE = os.environ.get('USER_TABLE', 'StorageUIUsers')
+LOGS_TABLE = os.environ.get('LOGS_TABLE', 'StorageUIActivityLogs')
+
+@app.context_processor
+def inject_user_context():
+    user = session.get('user') if (has_request_context() and 'user' in session) else None
+    return {
+        'current_user': user,
+        'user_role': (user.get('role') if user else 'contributor'),
+        'is_admin': (user.get('role') == 'admin') if user else False,
+        'is_reader': (user.get('role') == 'reader') if user else False
+    }
+
 # ---------- Blueprint ----------
 ui = Blueprint("ui", __name__, url_prefix="/storage-ui")
 
@@ -51,10 +70,60 @@ def parse_account_name(conn_str):
             return part.split("=", 1)[1]
     return "Storage Account"
 
+def auto_connect_from_env_if_available():
+    """Auto-connects to Azure Storage if environment variables are set."""
+    if 'auth_method' in session and 'account_name' in session:
+        return True
+        
+    conn_str = os.environ.get('AZURE_STORAGE_CONNECTION_STRING')
+    if conn_str:
+        account_name = parse_account_name(conn_str)
+        session['auth_method'] = 'Connection String'
+        session['account_name'] = account_name
+        session['conn_string'] = conn_str
+        session['is_env_managed'] = True
+        return True
+        
+    account_name = os.environ.get('AZURE_STORAGE_ACCOUNT_NAME')
+    if account_name:
+        account_key = os.environ.get('AZURE_STORAGE_ACCOUNT_KEY')
+        if account_key:
+            session['auth_method'] = 'Access Key'
+            session['account_name'] = account_name
+            session['account_key'] = account_key
+            session['is_env_managed'] = True
+            return True
+        else:
+            session['auth_method'] = 'DefaultAzureCredential'
+            session['account_name'] = account_name
+            session['is_env_managed'] = True
+            return True
+            
+    return False
+
+def is_storage_connected():
+    if has_request_context():
+        if 'auth_method' in session and 'account_name' in session:
+            return True
+        return auto_connect_from_env_if_available()
+    return True
+
 def require_auth():
-    return 'account_name' in session
+    """Requires both storage connection and valid user login session."""
+    if not is_storage_connected():
+        return False
+    user = session.get('user')
+    return bool(user and user.get('is_authenticated'))
+
+def is_admin():
+    return require_auth() and session.get('user', {}).get('role') == 'admin'
+
+def has_write_permission():
+    return require_auth() and session.get('user', {}).get('role') in ['admin', 'contributor']
 
 def get_blob_service():
+    if not is_storage_connected():
+        raise ValueError("Not authenticated with Azure Storage")
     method = session.get('auth_method')
     if method == 'Connection String':
         return BlobServiceClient.from_connection_string(session['conn_string'])
@@ -62,12 +131,16 @@ def get_blob_service():
         conn_str = f"DefaultEndpointsProtocol=https;AccountName={session['account_name']};AccountKey={session['account_key']};EndpointSuffix=core.windows.net"
         return BlobServiceClient.from_connection_string(conn_str)
     elif method == 'Service Principal':
-        from azure.identity import ClientSecretCredential
         credential = ClientSecretCredential(session['tenant_id'], session['client_id'], session['client_secret'])
         return BlobServiceClient(account_url=f"https://{session['account_name']}.blob.core.windows.net", credential=credential)
-    raise ValueError("Not authenticated")
+    elif method == 'DefaultAzureCredential':
+        credential = DefaultAzureCredential()
+        return BlobServiceClient(account_url=f"https://{session['account_name']}.blob.core.windows.net", credential=credential)
+    raise ValueError("Not authenticated with Azure Storage")
 
 def get_share_service():
+    if not is_storage_connected():
+        raise ValueError("Not authenticated with Azure Storage")
     method = session.get('auth_method')
     if method == 'Connection String':
         return ShareServiceClient.from_connection_string(session['conn_string'])
@@ -75,12 +148,16 @@ def get_share_service():
         conn_str = f"DefaultEndpointsProtocol=https;AccountName={session['account_name']};AccountKey={session['account_key']};EndpointSuffix=core.windows.net"
         return ShareServiceClient.from_connection_string(conn_str)
     elif method == 'Service Principal':
-        from azure.identity import ClientSecretCredential
         credential = ClientSecretCredential(session['tenant_id'], session['client_id'], session['client_secret'])
         return ShareServiceClient(account_url=f"https://{session['account_name']}.file.core.windows.net", credential=credential)
-    raise ValueError("Not authenticated")
+    elif method == 'DefaultAzureCredential':
+        credential = DefaultAzureCredential()
+        return ShareServiceClient(account_url=f"https://{session['account_name']}.file.core.windows.net", credential=credential)
+    raise ValueError("Not authenticated with Azure Storage")
 
 def get_queue_service():
+    if not is_storage_connected():
+        raise ValueError("Not authenticated with Azure Storage")
     method = session.get('auth_method')
     if method == 'Connection String':
         return QueueServiceClient.from_connection_string(session['conn_string'])
@@ -88,12 +165,16 @@ def get_queue_service():
         conn_str = f"DefaultEndpointsProtocol=https;AccountName={session['account_name']};AccountKey={session['account_key']};EndpointSuffix=core.windows.net"
         return QueueServiceClient.from_connection_string(conn_str)
     elif method == 'Service Principal':
-        from azure.identity import ClientSecretCredential
         credential = ClientSecretCredential(session['tenant_id'], session['client_id'], session['client_secret'])
         return QueueServiceClient(account_url=f"https://{session['account_name']}.queue.core.windows.net", credential=credential)
-    raise ValueError("Not authenticated")
+    elif method == 'DefaultAzureCredential':
+        credential = DefaultAzureCredential()
+        return QueueServiceClient(account_url=f"https://{session['account_name']}.queue.core.windows.net", credential=credential)
+    raise ValueError("Not authenticated with Azure Storage")
 
 def get_table_service():
+    if not is_storage_connected():
+        raise ValueError("Not authenticated with Azure Storage")
     method = session.get('auth_method')
     if method == 'Connection String':
         return TableServiceClient.from_connection_string(session['conn_string'])
@@ -101,11 +182,303 @@ def get_table_service():
         conn_str = f"DefaultEndpointsProtocol=https;AccountName={session['account_name']};AccountKey={session['account_key']};EndpointSuffix=core.windows.net"
         return TableServiceClient.from_connection_string(conn_str)
     elif method == 'Service Principal':
-        from azure.identity import ClientSecretCredential
         credential = ClientSecretCredential(session['tenant_id'], session['client_id'], session['client_secret'])
         return TableServiceClient(endpoint=f"https://{session['account_name']}.table.core.windows.net", credential=credential)
-    raise ValueError("Not authenticated")
+    elif method == 'DefaultAzureCredential':
+        credential = DefaultAzureCredential()
+        return TableServiceClient(endpoint=f"https://{session['account_name']}.table.core.windows.net", credential=credential)
+    raise ValueError("Not authenticated with Azure Storage")
 
+# -----------------------
+# System Tables & User Management Helpers
+# -----------------------
+def ensure_system_tables_exist():
+    """Ensures USER_TABLE and LOGS_TABLE exist in Azure Table Storage."""
+    try:
+        table_svc = get_table_service()
+        try:
+            table_svc.create_table_if_not_exists(USER_TABLE)
+        except Exception as e:
+            print(f"Notice: USER_TABLE check: {e}")
+        try:
+            table_svc.create_table_if_not_exists(LOGS_TABLE)
+        except Exception as e:
+            print(f"Notice: LOGS_TABLE check: {e}")
+    except Exception as e:
+        print(f"Warning: could not verify system tables: {e}")
+
+def check_has_any_users():
+    """Checks whether any user accounts exist in USER_TABLE."""
+    try:
+        table_svc = get_table_service()
+        table_client = table_svc.get_table_client(USER_TABLE)
+        entities = list(table_client.list_entities(results_per_page=1))
+        return len(entities) > 0
+    except Exception as e:
+        print(f"Error checking users in {USER_TABLE}: {e}")
+        return False
+
+def get_user_by_username(username):
+    if not username:
+        return None
+    try:
+        table_svc = get_table_service()
+        table_client = table_svc.get_table_client(USER_TABLE)
+        return dict(table_client.get_entity(partition_key='user', row_key=username.lower().strip()))
+    except (ResourceNotFoundError, HttpResponseError):
+        return None
+    except Exception as e:
+        print(f"Error fetching user {username}: {e}")
+        return None
+
+def save_user(username, password=None, password_hash=None, email=None, display_name=None, role=None, is_active=None, must_change_password=None, update_login=False):
+    table_svc = get_table_service()
+    table_client = table_svc.get_table_client(USER_TABLE)
+    row_key = username.lower().strip()
+
+    existing = None
+    try:
+        existing = dict(table_client.get_entity(partition_key='user', row_key=row_key))
+    except (ResourceNotFoundError, HttpResponseError):
+        existing = None
+
+    entity = {
+        'PartitionKey': 'user',
+        'RowKey': row_key,
+        'username': username.strip(),
+    }
+
+    if existing is None:
+        entity['created_at'] = datetime.now(timezone.utc).isoformat()
+        entity['email'] = (email or '').strip()
+        entity['display_name'] = (display_name or username).strip()
+        entity['role'] = (role or 'contributor').lower().strip()
+        entity['is_active'] = True if is_active is None else bool(is_active)
+        entity['must_change_password'] = False if must_change_password is None else bool(must_change_password)
+        entity['last_login'] = ''
+    else:
+        if email is not None:
+            entity['email'] = email.strip()
+        if display_name is not None:
+            entity['display_name'] = display_name.strip()
+        if role is not None:
+            entity['role'] = role.lower().strip()
+        if is_active is not None:
+            entity['is_active'] = bool(is_active)
+        if must_change_password is not None:
+            entity['must_change_password'] = bool(must_change_password)
+
+    if password:
+        entity['password_hash'] = generate_password_hash(password, method='scrypt')
+    elif password_hash:
+        entity['password_hash'] = password_hash
+
+    if update_login:
+        entity['last_login'] = datetime.now(timezone.utc).isoformat()
+
+    table_client.upsert_entity(entity=entity, mode=UpdateMode.MERGE)
+    return entity
+
+def get_all_users():
+    try:
+        table_svc = get_table_service()
+        table_client = table_svc.get_table_client(USER_TABLE)
+        entities = list(table_client.query_entities("PartitionKey eq 'user'"))
+        users = []
+        for e in entities:
+            u = dict(e)
+            u.setdefault('display_name', u.get('username', ''))
+            u.setdefault('email', '')
+            u.setdefault('role', 'contributor')
+            u.setdefault('is_active', True)
+            u.setdefault('must_change_password', False)
+            u.setdefault('last_login', '')
+            u.setdefault('created_at', '')
+            users.append(u)
+        users.sort(key=lambda x: x.get('created_at', '') or x.get('username', ''))
+        return users
+    except Exception as e:
+        print(f"Error listing users: {e}")
+        return []
+
+def delete_user_by_username(username):
+    table_svc = get_table_service()
+    table_client = table_svc.get_table_client(USER_TABLE)
+    table_client.delete_entity(partition_key='user', row_key=username.lower().strip())
+
+def bulk_create_users_from_file(file_obj, filename):
+    created = 0
+    skipped = 0
+    errors = []
+    rows = []
+    fn = filename.lower()
+    
+    try:
+        if fn.endswith('.csv'):
+            content = file_obj.read().decode('utf-8-sig', errors='ignore')
+            reader = csv.DictReader(io.StringIO(content))
+            for r in reader:
+                rows.append(r)
+        elif fn.endswith('.xlsx'):
+            wb = openpyxl.load_workbook(file_obj, data_only=True)
+            ws = wb.active
+            headers = None
+            for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                if row_idx == 0:
+                    headers = [str(h).strip().lower() if h is not None else '' for h in row]
+                else:
+                    if not any(row):
+                        continue
+                    row_dict = {}
+                    for i, val in enumerate(row):
+                        if headers and i < len(headers) and headers[i]:
+                            row_dict[headers[i]] = str(val).strip() if val is not None else ''
+                    rows.append(row_dict)
+        else:
+            return 0, 0, ["Unsupported file format. Please upload a .csv or .xlsx file."]
+    except Exception as e:
+        return 0, 0, [f"Error reading file: {e}"]
+
+    for idx, row in enumerate(rows, start=2):
+        n_row = {str(k).strip().lower(): str(v).strip() for k, v in row.items() if k is not None}
+        username = n_row.get('username', '').strip()
+        email = n_row.get('email', '').strip()
+        password = n_row.get('password', '').strip()
+        role = n_row.get('role', 'contributor').strip().lower()
+        if role not in ['admin', 'contributor', 'reader']:
+            role = 'contributor'
+        enforce_reset_val = n_row.get('enforcepasswordreset', n_row.get('enforce_reset', 'yes')).strip().lower()
+        must_change = enforce_reset_val in ['yes', 'true', '1', 'y']
+        display_name = n_row.get('display_name', n_row.get('displayname', username)).strip()
+
+        if not username:
+            skipped += 1
+            errors.append(f"Row {idx}: Missing username.")
+            continue
+        if not password:
+            skipped += 1
+            errors.append(f"Row {idx}: Missing password for user '{username}'.")
+            continue
+
+        try:
+            save_user(
+                username=username,
+                password=password,
+                email=email,
+                display_name=display_name,
+                role=role,
+                is_active=True,
+                must_change_password=must_change
+            )
+            created += 1
+        except Exception as e:
+            skipped += 1
+            errors.append(f"Row {idx} ({username}): {e}")
+
+    return created, skipped, errors
+
+# -----------------------
+# Activity Audit Logging Helper
+# -----------------------
+def log_activity(service, action, target, status='SUCCESS', details='', username=None, role=None):
+    try:
+        if not is_storage_connected():
+            return
+        table_svc = get_table_service()
+        table_client = table_svc.get_table_client(LOGS_TABLE)
+
+        now = datetime.now(timezone.utc)
+        inv_ts = f"{9999999999 - int(now.timestamp()):010d}"
+        row_key = f"{inv_ts}_{uuid.uuid4().hex[:8]}"
+
+        user_info = {}
+        ip = '127.0.0.1'
+        if has_request_context():
+            try:
+                user_info = session.get('user', {}) if session else {}
+            except Exception:
+                user_info = {}
+            try:
+                ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
+            except Exception:
+                ip = '127.0.0.1'
+
+        uname = username or user_info.get('username') or 'Anonymous'
+        urole = role or user_info.get('role') or 'N/A'
+
+        entity = {
+            'PartitionKey': 'log',
+            'RowKey': row_key,
+            'timestamp': now.isoformat(),
+            'timestamp_formatted': now.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            'username': uname,
+            'role': urole,
+            'service': service,
+            'action': action,
+            'target': str(target)[:500] if target else '',
+            'status': status,
+            'details': str(details)[:1000] if details else '',
+            'ip_address': ip
+        }
+        table_client.create_entity(entity)
+    except Exception as e:
+        # Never crash application if logging fails
+        print(f"Activity logging error: {e}")
+
+def query_activity_logs(service=None, username=None, status=None, from_date=None, to_date=None, limit=250):
+    try:
+        table_svc = get_table_service()
+        table_client = table_svc.get_table_client(LOGS_TABLE)
+        entities = table_client.query_entities("PartitionKey eq 'log'", results_per_page=limit)
+        logs = []
+
+        uname_filter = (username or '').lower().strip()
+        svc_filter = (service or 'all').lower().strip()
+        stat_filter = (status or 'all').strip()
+
+        from_dt = None
+        to_dt = None
+        if from_date:
+            try:
+                from_dt = datetime.strptime(from_date, "%Y-%m-%d").date()
+            except Exception:
+                pass
+        if to_date:
+            try:
+                to_dt = datetime.strptime(to_date, "%Y-%m-%d").date()
+            except Exception:
+                pass
+
+        for e in entities:
+            l = dict(e)
+            if svc_filter and svc_filter != 'all' and l.get('service', '').lower() != svc_filter:
+                continue
+            if uname_filter and uname_filter not in l.get('username', '').lower():
+                continue
+            if stat_filter and stat_filter != 'all' and l.get('status', '') != stat_filter:
+                continue
+            if from_dt or to_dt:
+                ts_str = l.get('timestamp', '')
+                if ts_str:
+                    try:
+                        log_date = datetime.fromisoformat(ts_str.replace('Z', '+00:00')).date()
+                        if from_dt and log_date < from_dt:
+                            continue
+                        if to_dt and log_date > to_dt:
+                            continue
+                    except Exception:
+                        pass
+            logs.append(l)
+            if len(logs) >= limit:
+                break
+        return logs
+    except Exception as e:
+        print(f"Error querying activity logs: {e}")
+        return []
+
+# -----------------------
+# Sidebar Navigation Tree Helper
+# -----------------------
 def load_sidebar_tree():
     if not require_auth():
         return {}
@@ -138,88 +511,275 @@ def load_sidebar_tree():
     except Exception as e:
         print(f"Error loading queues for sidebar: {e}")
         
-    # 4. Tables
+    # 4. Tables (Hide system tables from non-admin users)
     try:
         table_svc = get_table_service()
         tables = list(table_svc.list_tables(results_per_page=100))
-        tree['tables'] = [t.name if hasattr(t, "name") else str(t) for t in tables]
+        table_names = [t.name if hasattr(t, "name") else str(t) for t in tables]
+        if not is_admin():
+            table_names = [t for t in table_names if t.lower() not in [USER_TABLE.lower(), LOGS_TABLE.lower()]]
+        tree['tables'] = table_names
     except Exception as e:
         print(f"Error loading tables for sidebar: {e}")
         
     return tree
 
 # -----------------------
-# Auth Routes
+# Authentication & Portal Setup Routes
 # -----------------------
 @ui.route('/', methods=['GET', 'POST'])
 def login():
+    auto_connect_from_env_if_available()
+    storage_connected = is_storage_connected()
+    is_env_managed = bool(os.environ.get('AZURE_STORAGE_CONNECTION_STRING') or os.environ.get('AZURE_STORAGE_ACCOUNT_NAME'))
+
+    # If storage connected, check if any users exist
+    if storage_connected:
+        ensure_system_tables_exist()
+        if not check_has_any_users():
+            return redirect(url_for('ui.setup'))
+
     if request.method == 'POST':
-        auth_method = request.form.get('auth_method')
+        login_type = request.form.get('login_type')
         
-        try:
-            if auth_method == 'conn_str':
-                conn_str = request.form.get('conn_string', '').strip()
-                if not conn_str:
-                    raise ValueError("Connection string required")
-                # Test connection by listing containers
-                client = BlobServiceClient.from_connection_string(conn_str)
-                _ = list(client.list_containers(results_per_page=1))
+        # User Authentication (Username + Password)
+        if login_type == 'user_auth' or ('username' in request.form and 'password' in request.form and not request.form.get('conn_string')):
+            if not storage_connected:
+                flash("Storage connection is not configured. Please connect to Azure Storage first.")
+                return redirect(url_for('ui.login'))
                 
-                account_name = parse_account_name(conn_str)
-                session['auth_method'] = 'Connection String'
-                session['account_name'] = account_name
-                session['conn_string'] = conn_str
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '')
+            
+            user = get_user_by_username(username)
+            if not user or not check_password_hash(user.get('password_hash', ''), password):
+                log_activity('auth', 'LOGIN_FAILED', username, status='FAILED', details='Invalid username or password', username=username, role='N/A')
+                flash("Invalid username or password.")
+                return redirect(url_for('ui.login'))
                 
-            elif auth_method == 'key':
-                account_name = request.form.get('account_name', '').strip()
-                account_key = request.form.get('account_key', '').strip()
-                if not account_name or not account_key:
-                    raise ValueError("Account name and key required")
+            if not user.get('is_active', True):
+                log_activity('auth', 'LOGIN_BLOCKED', username, status='FAILED', details='Account is disabled', username=username, role=user.get('role'))
+                flash("Your account is disabled. Please contact your administrator.")
+                return redirect(url_for('ui.login'))
                 
-                conn_str = f"DefaultEndpointsProtocol=https;AccountName={account_name};AccountKey={account_key};EndpointSuffix=core.windows.net"
-                client = BlobServiceClient.from_connection_string(conn_str)
-                _ = list(client.list_containers(results_per_page=1))
+            # Check if password reset is enforced
+            if user.get('must_change_password', False):
+                session['pending_user'] = username
+                return redirect(url_for('ui.force_password_reset'))
                 
-                session['auth_method'] = 'Access Key'
-                session['account_name'] = account_name
-                session['account_key'] = account_key
-                
-            elif auth_method == 'sp':
-                account_name = request.form.get('account_name_sp', '').strip()
-                tenant_id = request.form.get('tenant_id', '').strip()
-                client_id = request.form.get('client_id', '').strip()
-                client_secret = request.form.get('client_secret', '').strip()
-                if not all([account_name, tenant_id, client_id, client_secret]):
-                    raise ValueError("All Service Principal fields are required")
-                
-                from azure.identity import ClientSecretCredential
-                credential = ClientSecretCredential(tenant_id, client_id, client_secret)
-                client = BlobServiceClient(account_url=f"https://{account_name}.blob.core.windows.net", credential=credential)
-                _ = list(client.list_containers(results_per_page=1))
-                
-                session['auth_method'] = 'Service Principal'
-                session['account_name'] = account_name
-                session['tenant_id'] = tenant_id
-                session['client_id'] = client_id
-                session['client_secret'] = client_secret
-            else:
-                raise ValueError("Invalid authentication method")
-                
-            flash("Connected successfully")
+            # Update last login & establish authenticated session
+            save_user(username=username, update_login=True)
+            session['user'] = {
+                'username': user['username'],
+                'display_name': user.get('display_name') or user['username'],
+                'email': user.get('email', ''),
+                'role': user.get('role', 'contributor'),
+                'is_authenticated': True
+            }
+            log_activity('auth', 'LOGIN', username, status='SUCCESS', username=username, role=user.get('role'))
+            flash(f"Welcome back, {session['user']['display_name']}!")
             return redirect(url_for('ui.home'))
             
-        except Exception as e:
-            flash(f"Connection failed: {e}")
-            return redirect(url_for('ui.login'))
-            
+        else:
+            # Storage backend connection submitted
+            return connect_storage()
+
     if require_auth():
         return redirect(url_for('ui.home'))
-    return render_template('login.html')
+        
+    return render_template('login.html', storage_connected=storage_connected, is_env_managed=is_env_managed)
+
+@ui.route('/connect-storage', methods=['POST'])
+def connect_storage():
+    auth_method = request.form.get('auth_method')
+    try:
+        if auth_method == 'conn_str':
+            conn_str = request.form.get('conn_string', '').strip()
+            if not conn_str:
+                raise ValueError("Connection string required")
+            client = BlobServiceClient.from_connection_string(conn_str)
+            _ = list(client.list_containers(results_per_page=1))
+            
+            account_name = parse_account_name(conn_str)
+            session['auth_method'] = 'Connection String'
+            session['account_name'] = account_name
+            session['conn_string'] = conn_str
+            
+        elif auth_method == 'key':
+            account_name = request.form.get('account_name', '').strip()
+            account_key = request.form.get('account_key', '').strip()
+            if not account_name or not account_key:
+                raise ValueError("Account name and key required")
+            
+            conn_str = f"DefaultEndpointsProtocol=https;AccountName={account_name};AccountKey={account_key};EndpointSuffix=core.windows.net"
+            client = BlobServiceClient.from_connection_string(conn_str)
+            _ = list(client.list_containers(results_per_page=1))
+            
+            session['auth_method'] = 'Access Key'
+            session['account_name'] = account_name
+            session['account_key'] = account_key
+            
+        elif auth_method == 'sp':
+            account_name = request.form.get('account_name_sp', '').strip()
+            tenant_id = request.form.get('tenant_id', '').strip()
+            client_id = request.form.get('client_id', '').strip()
+            client_secret = request.form.get('client_secret', '').strip()
+            if not all([account_name, tenant_id, client_id, client_secret]):
+                raise ValueError("All Service Principal fields are required")
+            
+            credential = ClientSecretCredential(tenant_id, client_id, client_secret)
+            client = BlobServiceClient(account_url=f"https://{account_name}.blob.core.windows.net", credential=credential)
+            _ = list(client.list_containers(results_per_page=1))
+            
+            session['auth_method'] = 'Service Principal'
+            session['account_name'] = account_name
+            session['tenant_id'] = tenant_id
+            session['client_id'] = client_id
+            session['client_secret'] = client_secret
+        else:
+            raise ValueError("Invalid authentication method")
+            
+        ensure_system_tables_exist()
+        if not check_has_any_users():
+            return redirect(url_for('ui.setup'))
+            
+        flash("Connected to Azure Storage. Please sign in.")
+        return redirect(url_for('ui.login'))
+        
+    except Exception as e:
+        flash(f"Connection failed: {e}")
+        return redirect(url_for('ui.login'))
+
+@ui.route('/setup', methods=['GET', 'POST'])
+def setup():
+    auto_connect_from_env_if_available()
+    if not is_storage_connected():
+        flash("Please configure storage backend first.")
+        return redirect(url_for('ui.login'))
+        
+    ensure_system_tables_exist()
+    if check_has_any_users():
+        flash("Setup has already been completed.")
+        return redirect(url_for('ui.login'))
+        
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        email = request.form.get('email', '').strip()
+        display_name = request.form.get('display_name', '').strip() or 'System Administrator'
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        if not username or not password:
+            flash("Username and password are required.")
+            return render_template('setup.html')
+        if password != confirm_password:
+            flash("Passwords do not match.")
+            return render_template('setup.html')
+        if len(password) < 6:
+            flash("Password must be at least 6 characters.")
+            return render_template('setup.html')
+            
+        try:
+            save_user(
+                username=username,
+                password=password,
+                email=email,
+                display_name=display_name,
+                role='admin',
+                is_active=True,
+                must_change_password=False,
+                update_login=True
+            )
+            session['user'] = {
+                'username': username,
+                'display_name': display_name,
+                'email': email,
+                'role': 'admin',
+                'is_authenticated': True
+            }
+            log_activity('auth', 'INITIAL_SETUP', username, status='SUCCESS', details='Master Admin Created', username=username, role='admin')
+            flash("Master administrator account initialized successfully!")
+            return redirect(url_for('ui.home'))
+        except Exception as e:
+            flash(f"Failed to create admin account: {e}")
+            return render_template('setup.html')
+            
+    return render_template('setup.html')
+
+@ui.route('/force-password-reset', methods=['GET', 'POST'])
+def force_password_reset():
+    username = session.get('pending_user')
+    if not username:
+        return redirect(url_for('ui.login'))
+        
+    if request.method == 'POST':
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        
+        if len(new_password) < 6:
+            flash("New password must be at least 6 characters.")
+            return render_template('force_password_reset.html')
+        if new_password != confirm_password:
+            flash("Passwords do not match.")
+            return render_template('force_password_reset.html')
+            
+        try:
+            save_user(username=username, password=new_password, must_change_password=False, update_login=True)
+            user = get_user_by_username(username)
+            session.pop('pending_user', None)
+            session['user'] = {
+                'username': user['username'],
+                'display_name': user.get('display_name') or user['username'],
+                'email': user.get('email', ''),
+                'role': user.get('role', 'contributor'),
+                'is_authenticated': True
+            }
+            log_activity('auth', 'PASSWORD_RESET_FORCED', username, status='SUCCESS', username=username, role=user.get('role'))
+            flash("Password updated successfully! Welcome to Storage UI.")
+            return redirect(url_for('ui.home'))
+        except Exception as e:
+            flash(f"Error resetting password: {e}")
+            return render_template('force_password_reset.html')
+            
+    return render_template('force_password_reset.html')
+
+@ui.route('/change-my-password', methods=['POST'])
+def change_my_password():
+    if not require_auth():
+        return redirect(url_for('ui.login'))
+        
+    username = session['user']['username']
+    current_password = request.form.get('current_password', '')
+    new_password = request.form.get('new_password', '')
+    confirm_password = request.form.get('confirm_password', '')
+    
+    if len(new_password) < 4:
+        flash("New password must be at least 4 characters.")
+        return redirect(request.referrer or url_for('ui.home'))
+    if new_password != confirm_password:
+        flash("New passwords do not match.")
+        return redirect(request.referrer or url_for('ui.home'))
+        
+    user = get_user_by_username(username)
+    if not user or not check_password_hash(user.get('password_hash', ''), current_password):
+        flash("Current password incorrect.")
+        return redirect(request.referrer or url_for('ui.home'))
+        
+    try:
+        save_user(username=username, password=new_password, must_change_password=False)
+        log_activity('auth', 'PASSWORD_CHANGE', username, status='SUCCESS', username=username, role=session['user']['role'])
+        flash("Your password has been changed successfully.")
+    except Exception as e:
+        flash(f"Error changing password: {e}")
+        
+    return redirect(request.referrer or url_for('ui.home'))
 
 @ui.route('/logout')
 def logout():
-    session.clear()
-    flash("Logged out")
+    uname = session.get('user', {}).get('username', 'Anonymous')
+    log_activity('auth', 'LOGOUT', uname, status='SUCCESS')
+    session.pop('user', None)
+    flash("Signed out successfully.")
     return redirect(url_for('ui.login'))
 
 @ui.route('/home')
@@ -229,10 +789,297 @@ def home():
     tree = load_sidebar_tree()
     return render_template('dashboard.html', sidebar_tree=tree, active_service=None, active_item=None)
 
+# -----------------------
+# Portal Management: User & Role Management Routes (Admin Only)
+# -----------------------
+@ui.route('/users')
+def users_list():
+    if not is_admin():
+        flash("Permission denied. Administrator role required.")
+        return redirect(url_for('ui.home'))
+        
+    users = get_all_users()
+    tree = load_sidebar_tree()
+    return render_template('users.html', users=users, user_table_name=USER_TABLE, sidebar_tree=tree, active_service='users', active_item=None)
+
+@ui.route('/users/create', methods=['POST'])
+def create_user():
+    if not is_admin():
+        flash("Permission denied. Administrator role required.")
+        return redirect(url_for('ui.home'))
+        
+    username = request.form.get('username', '').strip()
+    display_name = request.form.get('display_name', '').strip()
+    email = request.form.get('email', '').strip()
+    role = request.form.get('role', 'contributor').strip().lower()
+    password = request.form.get('password', '')
+    enforce_reset = bool(request.form.get('enforce_reset'))
+    
+    if not username or not password:
+        flash("Username and password are required.")
+        return redirect(url_for('ui.users_list'))
+        
+    existing = get_user_by_username(username)
+    if existing:
+        flash(f"User '{username}' already exists.")
+        return redirect(url_for('ui.users_list'))
+        
+    try:
+        save_user(
+            username=username,
+            password=password,
+            email=email,
+            display_name=display_name,
+            role=role,
+            is_active=True,
+            must_change_password=enforce_reset
+        )
+        log_activity('user_mgmt', 'CREATE_USER', username, status='SUCCESS', details=f"Role: {role}, Email: {email}")
+        flash(f"User '{username}' created successfully.")
+    except Exception as e:
+        log_activity('user_mgmt', 'CREATE_USER', username, status='FAILED', details=str(e))
+        flash(f"Failed to create user: {e}")
+        
+    return redirect(url_for('ui.users_list'))
+
+@ui.route('/users/bulk-create', methods=['POST'])
+def bulk_create_users():
+    if not is_admin():
+        flash("Permission denied. Administrator role required.")
+        return redirect(url_for('ui.home'))
+        
+    uploaded_file = request.files.get('file')
+    if not uploaded_file or not uploaded_file.filename:
+        flash("No file was uploaded.")
+        return redirect(url_for('ui.users_list'))
+        
+    created, skipped, errors = bulk_create_users_from_file(uploaded_file, uploaded_file.filename)
+    details = f"Created: {created}, Skipped: {skipped}"
+    if errors:
+        details += f" (Errors: {'; '.join(errors[:3])})"
+        
+    log_activity('user_mgmt', 'BULK_CREATE_USERS', uploaded_file.filename, status='SUCCESS' if created > 0 else 'FAILED', details=details)
+    
+    msg = f"Bulk import complete: {created} user(s) created."
+    if skipped > 0:
+        msg += f" {skipped} skipped. {'; '.join(errors)}"
+    flash(msg)
+    return redirect(url_for('ui.users_list'))
+
+@ui.route('/users/edit', methods=['POST'])
+def edit_user():
+    if not is_admin():
+        flash("Permission denied. Administrator role required.")
+        return redirect(url_for('ui.home'))
+        
+    username = request.form.get('username', '').strip()
+    display_name = request.form.get('display_name', '').strip()
+    email = request.form.get('email', '').strip()
+    role = request.form.get('role', 'contributor').strip().lower()
+    
+    try:
+        save_user(username=username, display_name=display_name, email=email, role=role)
+        # If editing self, update current session
+        if session.get('user', {}).get('username') == username:
+            session['user']['display_name'] = display_name or username
+            session['user']['email'] = email
+            session['user']['role'] = role
+            
+        log_activity('user_mgmt', 'EDIT_USER', username, status='SUCCESS', details=f"Role: {role}, Email: {email}")
+        flash(f"User '{username}' updated successfully.")
+    except Exception as e:
+        log_activity('user_mgmt', 'EDIT_USER', username, status='FAILED', details=str(e))
+        flash(f"Failed to update user: {e}")
+        
+    return redirect(url_for('ui.users_list'))
+
+@ui.route('/users/reset-password', methods=['POST'])
+def reset_user_password():
+    if not is_admin():
+        flash("Permission denied. Administrator role required.")
+        return redirect(url_for('ui.home'))
+        
+    username = request.form.get('username', '').strip()
+    new_password = request.form.get('new_password', '')
+    enforce_reset = bool(request.form.get('enforce_reset'))
+    
+    if len(new_password) < 4:
+        flash("Password must be at least 4 characters.")
+        return redirect(url_for('ui.users_list'))
+        
+    try:
+        save_user(username=username, password=new_password, must_change_password=enforce_reset)
+        log_activity('user_mgmt', 'RESET_PASSWORD', username, status='SUCCESS', details=f"Enforce Reset: {enforce_reset}")
+        flash(f"Password for '{username}' has been reset.")
+    except Exception as e:
+        log_activity('user_mgmt', 'RESET_PASSWORD', username, status='FAILED', details=str(e))
+        flash(f"Failed to reset password: {e}")
+        
+    return redirect(url_for('ui.users_list'))
+
+@ui.route('/users/toggle-status', methods=['POST'])
+def toggle_user_status():
+    if not is_admin():
+        flash("Permission denied. Administrator role required.")
+        return redirect(url_for('ui.home'))
+        
+    username = request.form.get('username', '').strip()
+    is_active_val = request.form.get('is_active', '1') == '1'
+    
+    if username == session.get('user', {}).get('username') and not is_active_val:
+        flash("You cannot disable your own administrator account.")
+        return redirect(url_for('ui.users_list'))
+        
+    try:
+        save_user(username=username, is_active=is_active_val)
+        status_name = "enabled" if is_active_val else "disabled"
+        log_activity('user_mgmt', f"{'ENABLE' if is_active_val else 'DISABLE'}_USER", username, status='SUCCESS')
+        flash(f"Account for '{username}' has been {status_name}.")
+    except Exception as e:
+        log_activity('user_mgmt', 'TOGGLE_STATUS_USER', username, status='FAILED', details=str(e))
+        flash(f"Failed to update status: {e}")
+        
+    return redirect(url_for('ui.users_list'))
+
+@ui.route('/users/delete', methods=['POST'])
+def delete_user():
+    if not is_admin():
+        flash("Permission denied. Administrator role required.")
+        return redirect(url_for('ui.home'))
+        
+    username = request.form.get('username', '').strip()
+    if username == session.get('user', {}).get('username'):
+        flash("You cannot delete your own administrator account.")
+        return redirect(url_for('ui.users_list'))
+        
+    try:
+        delete_user_by_username(username)
+        log_activity('user_mgmt', 'DELETE_USER', username, status='SUCCESS')
+        flash(f"User '{username}' deleted successfully.")
+    except Exception as e:
+        log_activity('user_mgmt', 'DELETE_USER', username, status='FAILED', details=str(e))
+        flash(f"Failed to delete user: {e}")
+        
+    return redirect(url_for('ui.users_list'))
+
+@ui.route('/users/template.csv')
+def download_user_template():
+    csv_data = "username,email,password,enforcepasswordreset,role\n"
+    csv_data += "john,john@example.com,Password123!,yes,contributor\n"
+    csv_data += "sarah,sarah@example.com,TempPass456!,yes,reader\n"
+    csv_data += "admin2,admin2@example.com,SecureAdmin789!,no,admin\n"
+    return Response(
+        csv_data,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=users_import_template.csv"}
+    )
+
+# -----------------------
+# Portal Management: Activity Logs Routes (Admin Only)
+# -----------------------
+@ui.route('/activity-logs')
+def activity_logs():
+    if not is_admin():
+        flash("Permission denied. Administrator role required.")
+        return redirect(url_for('ui.home'))
+        
+    filter_service = request.args.get('service', 'all')
+    filter_username = request.args.get('username', '')
+    filter_status = request.args.get('status', 'all')
+    from_date = request.args.get('from_date', '')
+    to_date = request.args.get('to_date', '')
+    
+    logs = query_activity_logs(
+        service=filter_service,
+        username=filter_username,
+        status=filter_status,
+        from_date=from_date,
+        to_date=to_date,
+        limit=250
+    )
+    tree = load_sidebar_tree()
+    return render_template(
+        'activity_logs.html',
+        logs=logs,
+        filter_service=filter_service,
+        filter_username=filter_username,
+        filter_status=filter_status,
+        from_date=from_date,
+        to_date=to_date,
+        sidebar_tree=tree,
+        active_service='activity_logs',
+        active_item=None
+    )
+
+@ui.route('/activity-logs/export')
+def export_activity_logs():
+    if not is_admin():
+        abort(403)
+        
+    fmt = request.args.get('format', 'csv').lower()
+    filter_service = request.args.get('service', 'all')
+    filter_username = request.args.get('username', '')
+    filter_status = request.args.get('status', 'all')
+    from_date = request.args.get('from_date', '')
+    to_date = request.args.get('to_date', '')
+    
+    logs = query_activity_logs(
+        service=filter_service,
+        username=filter_username,
+        status=filter_status,
+        from_date=from_date,
+        to_date=to_date,
+        limit=1000
+    )
+    
+    if fmt == 'json':
+        clean_logs = []
+        for l in logs:
+            c = dict(l)
+            c.pop('PartitionKey', None)
+            c.pop('RowKey', None)
+            c.pop('odata.etag', None)
+            c.pop('etag', None)
+            c.pop('Timestamp', None)
+            clean_logs.append(c)
+        return Response(
+            json.dumps(clean_logs, indent=2),
+            mimetype="application/json",
+            headers={"Content-Disposition": "attachment;filename=activity_logs.json"}
+        )
+    else:
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Timestamp", "Username", "Role", "Service", "Action", "Target", "Status", "Client IP", "Details"])
+        for l in logs:
+            writer.writerow([
+                l.get('timestamp_formatted') or l.get('timestamp', ''),
+                l.get('username', ''),
+                l.get('role', ''),
+                l.get('service', ''),
+                l.get('action', ''),
+                l.get('target', ''),
+                l.get('status', ''),
+                l.get('ip_address', ''),
+                l.get('details', '')
+            ])
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment;filename=activity_logs.csv"}
+        )
+
+# -----------------------
+# Bulk Create Resource (Containers, Shares, Queues, Tables)
+# -----------------------
 @ui.route('/bulk-create', methods=['POST'])
 def bulk_create():
     if not require_auth():
         return redirect(url_for('ui.login'))
+    if not is_admin():
+        flash("Permission denied. Administrator role required for resource creation.")
+        return redirect(url_for('ui.home'))
         
     resource_type = request.form.get('resource_type')
     uploaded_file = request.files.get('file')
@@ -287,36 +1134,44 @@ def bulk_create():
             for name in filtered_names:
                 try:
                     svc.create_container(name)
+                    log_activity('blob', 'CREATE_CONTAINER', name, 'SUCCESS')
                     success_count += 1
                 except Exception as ex:
                     errors.append(f"'{name}': {ex}")
+                    log_activity('blob', 'CREATE_CONTAINER', name, 'FAILED', details=str(ex))
                     
         elif resource_type == 'share':
             svc = get_share_service()
             for name in filtered_names:
                 try:
                     svc.create_share(name)
+                    log_activity('file', 'CREATE_SHARE', name, 'SUCCESS')
                     success_count += 1
                 except Exception as ex:
                     errors.append(f"'{name}': {ex}")
+                    log_activity('file', 'CREATE_SHARE', name, 'FAILED', details=str(ex))
                     
         elif resource_type == 'queue':
             svc = get_queue_service()
             for name in filtered_names:
                 try:
                     svc.create_queue(name)
+                    log_activity('queue', 'CREATE_QUEUE', name, 'SUCCESS')
                     success_count += 1
                 except Exception as ex:
                     errors.append(f"'{name}': {ex}")
+                    log_activity('queue', 'CREATE_QUEUE', name, 'FAILED', details=str(ex))
                     
         elif resource_type == 'table':
             svc = get_table_service()
             for name in filtered_names:
                 try:
                     svc.create_table(name)
+                    log_activity('table', 'CREATE_TABLE', name, 'SUCCESS')
                     success_count += 1
                 except Exception as ex:
                     errors.append(f"'{name}': {ex}")
+                    log_activity('table', 'CREATE_TABLE', name, 'FAILED', details=str(ex))
         else:
             flash(f"Invalid resource type: {resource_type}")
             return redirect(url_for('ui.home'))
@@ -361,11 +1216,17 @@ def blobs():
 def create_container():
     if not require_auth():
         return redirect(url_for('ui.login'))
+    if not is_admin():
+        flash("Permission denied. Administrator role required to create containers.")
+        return redirect(url_for('ui.blobs'))
+        
     name = request.form.get('name') or request.form.get('container_name')
     try:
         get_blob_service().create_container(name)
+        log_activity('blob', 'CREATE_CONTAINER', name, 'SUCCESS')
         flash(f"Container '{name}' created.")
     except Exception as e:
+        log_activity('blob', 'CREATE_CONTAINER', name, 'FAILED', details=str(e))
         flash(f"Error creating container: {e}")
     return redirect(url_for('ui.blobs'))
 
@@ -373,11 +1234,17 @@ def create_container():
 def delete_container():
     if not require_auth():
         return redirect(url_for('ui.login'))
+    if not is_admin():
+        flash("Permission denied. Administrator role required to delete containers.")
+        return redirect(url_for('ui.blobs'))
+        
     name = request.form.get('container_name')
     try:
         get_blob_service().delete_container(name)
+        log_activity('blob', 'DELETE_CONTAINER', name, 'SUCCESS')
         flash(f"Container '{name}' deleted.")
     except Exception as e:
+        log_activity('blob', 'DELETE_CONTAINER', name, 'FAILED', details=str(e))
         flash(f"Error deleting container: {e}")
     return redirect(url_for('ui.blobs'))
 
@@ -391,8 +1258,14 @@ def view_blobs(container_name):
     service = get_blob_service()
     container_client = service.get_container_client(container_name)
 
-    # Handle multiple files upload (regular form or AJAX with progress)
+    # Handle multiple files upload
     if request.method == 'POST' and 'files' in request.files:
+        if not has_write_permission():
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json:
+                return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
+            flash("Permission denied. Reader role is read-only.")
+            return redirect(url_for('ui.view_blobs', container_name=container_name))
+            
         folder = request.form.get('folder', '').strip()
         files = request.files.getlist('files')
 
@@ -415,8 +1288,10 @@ def view_blobs(container_name):
                     content_settings=ContentSettings(content_type=guessed_type)
                 )
                 uploaded.append(file.filename)
+                log_activity('blob', 'UPLOAD_BLOB', f"{container_name}/{blob_name}", 'SUCCESS')
             except Exception as e:
                 failed.append(f"{file.filename} ({e})")
+                log_activity('blob', 'UPLOAD_BLOB', f"{container_name}/{blob_name}", 'FAILED', details=str(e))
                 
         is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.headers.get('Accept') == 'application/json'
         if is_ajax:
@@ -448,74 +1323,55 @@ def view_blobs(container_name):
         limit = 20
 
     sort_by = request.args.get('sort', 'name').strip().lower()
-    if sort_by not in ['name', 'size', 'last_modified']:
-        sort_by = 'name'
-    sort_order = request.args.get('order', 'asc').strip().lower()
-    if sort_order not in ['asc', 'desc']:
-        sort_order = 'asc'
-
-    # Date range filter parameters (YYYY-MM-DD)
-    from_date_str = request.args.get('from_date', '').strip()
-    to_date_str = request.args.get('to_date', '').strip()
+    order = request.args.get('order', 'asc').strip().lower()
+    from_date = request.args.get('from_date', '').strip()
+    to_date = request.args.get('to_date', '').strip()
 
     from_dt = None
     to_dt = None
-    if from_date_str:
+    if from_date:
         try:
-            from_dt = datetime.strptime(from_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            from_dt = datetime.strptime(from_date, "%Y-%m-%d").date()
         except Exception:
-            from_dt = None
-    if to_date_str:
+            pass
+    if to_date:
         try:
-            to_dt = datetime.strptime(to_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
+            to_dt = datetime.strptime(to_date, "%Y-%m-%d").date()
         except Exception:
-            to_dt = None
+            pass
 
-    # List blobs
     try:
         raw_blobs = list(container_client.list_blobs())
     except Exception as e:
-        flash(f"Error listing blobs: {e}")
+        flash(f"Error fetching blobs: {e}")
         raw_blobs = []
 
-    # Filter by search query if provided
-    if search_query:
-        filtered_blobs = [b for b in raw_blobs if search_query.lower() in b.name.lower()]
-    else:
-        filtered_blobs = raw_blobs
+    filtered_blobs = []
+    for b in raw_blobs:
+        if search_query and search_query.lower() not in b.name.lower():
+            continue
+        if from_dt or to_dt:
+            if hasattr(b, 'last_modified') and b.last_modified:
+                blob_date = b.last_modified.date()
+                if from_dt and blob_date < from_dt:
+                    continue
+                if to_dt and blob_date > to_dt:
+                    continue
+        filtered_blobs.append(b)
 
-    # Filter by date range if provided
-    if from_dt or to_dt:
-        date_filtered = []
-        for b in filtered_blobs:
-            lm = getattr(b, 'last_modified', None)
-            if not lm:
-                continue
-            if lm.tzinfo is None:
-                lm = lm.replace(tzinfo=timezone.utc)
-            if from_dt and lm < from_dt:
-                continue
-            if to_dt and lm > to_dt:
-                continue
-            date_filtered.append(b)
-        filtered_blobs = date_filtered
+    # Sorting
+    def sort_key(b):
+        if sort_by == 'size':
+            return b.size or 0
+        elif sort_by == 'date':
+            return b.last_modified.timestamp() if getattr(b, 'last_modified', None) else 0
+        elif sort_by == 'type':
+            ct = getattr(b, 'content_settings', None)
+            return (ct.content_type if ct and ct.content_type else '') or ''
+        return b.name.lower()
 
-    # Global Sort before pagination
-    reverse = (sort_order == 'desc')
-    if sort_by == 'last_modified':
-        def get_blob_last_modified_ts(b):
-            lm = getattr(b, 'last_modified', None)
-            if lm:
-                try:
-                    return lm.timestamp()
-                except Exception:
-                    return 0
-            return 0
-        filtered_blobs.sort(key=get_blob_last_modified_ts, reverse=reverse)
-    elif sort_by == 'size':
-        filtered_blobs.sort(key=lambda b: getattr(b, 'size', 0) or 0, reverse=reverse)
-    else:
-        filtered_blobs.sort(key=lambda b: (getattr(b, 'name', '') or '').lower(), reverse=reverse)
+    reverse = (order == 'desc')
+    filtered_blobs.sort(key=sort_key, reverse=reverse)
 
     total_items = len(filtered_blobs)
     total_pages = max(1, math.ceil(total_items / limit))
@@ -524,1302 +1380,1344 @@ def view_blobs(container_name):
 
     start_idx = (page - 1) * limit
     end_idx = start_idx + limit
-    page_blobs = filtered_blobs[start_idx:end_idx]
-    page_start = start_idx + 1 if total_items > 0 else 0
-    page_end = min(end_idx, total_items)
+    paginated_blobs = filtered_blobs[start_idx:end_idx]
 
     tree = load_sidebar_tree()
-    try:
-        all_containers = [c.name for c in get_blob_service().list_containers()]
-    except Exception:
-        all_containers = [container_name]
-
     return render_template(
         'blobs.html',
-        blobs=page_blobs,
-        all_blobs_count=len(raw_blobs),
+        blobs=paginated_blobs,
         container_name=container_name,
-        all_containers=all_containers,
+        containers=None,
+        search_query=search_query,
+        page=page,
+        total_pages=total_pages,
+        limit=limit,
+        total_items=total_items,
+        sort_by=sort_by,
+        order=order,
+        from_date=from_date,
+        to_date=to_date,
         sidebar_tree=tree,
         active_service='blobs',
-        active_item=container_name,
-        page=page,
-        limit=limit,
-        total_pages=total_pages,
-        total_items=total_items,
-        page_start=page_start,
-        page_end=page_end,
-        search_query=search_query,
-        sort_by=sort_by,
-        sort_order=sort_order,
-        from_date=from_date_str,
-        to_date=to_date_str
+        active_item=container_name
     )
 
 @ui.route('/blobs/<container_name>/delete-multiple', methods=['POST'])
 def delete_multiple_blobs(container_name):
     if not require_auth():
         return jsonify({"success": False, "error": "Not authenticated"}), 401
-    
+    if not has_write_permission():
+        return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
+
     data = request.get_json(silent=True) or request.form
-    blob_names = data.get('blob_names', [])
+    blob_names = data.get('blobs', [])
     if isinstance(blob_names, str):
-        try:
-            blob_names = json.loads(blob_names)
-        except Exception:
-            blob_names = [blob_names]
-            
+        blob_names = [b.strip() for b in blob_names.split(',') if b.strip()]
+
     if not blob_names:
-        return jsonify({"success": False, "error": "No blobs selected for deletion"}), 400
-        
+        return jsonify({"success": False, "error": "No blobs specified for deletion"}), 400
+
     service = get_blob_service()
     container_client = service.get_container_client(container_name)
-    
+
     deleted = []
-    errors = []
+    failed = []
     for name in blob_names:
         try:
-            client = container_client.get_blob_client(name)
-            client.delete_blob()
+            container_client.delete_blob(name)
             deleted.append(name)
         except Exception as e:
-            errors.append(f"{name}: {str(e)}")
-            
-    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json:
-        return jsonify({
-            "success": len(deleted) > 0 or len(errors) == 0,
-            "deleted_count": len(deleted),
-            "deleted": deleted,
-            "errors": errors
-        })
-        
-    if deleted:
-        flash(f"Successfully deleted {len(deleted)} blob(s).")
-    if errors:
-        flash(f"Failed to delete: {', '.join(errors)}")
-    return redirect(url_for('ui.view_blobs', container_name=container_name))
+            failed.append(f"{name}: {e}")
+
+    status = 'SUCCESS' if len(deleted) > 0 else 'FAILED'
+    log_activity('blob', 'DELETE_MULTIPLE_BLOBS', container_name, status, details=f"Deleted {len(deleted)} of {len(blob_names)}: {', '.join(deleted[:5])}")
+
+    return jsonify({
+        "success": len(deleted) > 0,
+        "deleted_count": len(deleted),
+        "failed_count": len(failed),
+        "deleted": deleted,
+        "failed": failed
+    })
 
 @ui.route('/blobs/<container_name>/content', methods=['GET'])
 def get_blob_content(container_name):
     if not require_auth():
         return jsonify({"success": False, "error": "Not authenticated"}), 401
-        
-    blob_name = request.args.get('blob_name')
+
+    blob_name = request.args.get('name')
     if not blob_name:
         return jsonify({"success": False, "error": "Blob name required"}), 400
-        
+
+    service = get_blob_service()
+    container_client = service.get_container_client(container_name)
+    blob_client = container_client.get_blob_client(blob_name)
+
     try:
-        client = get_blob_service().get_blob_client(container_name, blob_name)
-        props = client.get_blob_properties()
-        size = props.size
-        content_type = props.content_settings.content_type or mimetypes.guess_type(blob_name)[0] or 'text/plain'
+        props = blob_client.get_blob_properties()
+        content_type = props.content_settings.content_type or mimetypes.guess_type(blob_name)[0] or 'application/octet-stream'
         
-        # Check size limitation for in-browser editing (10MB limit)
-        if size > 10 * 1024 * 1024:
+        # Max preview size: 10MB
+        if props.size > 10 * 1024 * 1024:
             return jsonify({
                 "success": False,
-                "error": f"File size ({size / (1024*1024):.1f} MB) exceeds in-browser editor limit of 10MB. Please download the file to edit."
+                "error": f"File is too large for inline preview ({props.size / (1024*1024):.1f} MB). Please download it instead."
             }), 400
-            
-        stream = client.download_blob()
+
+        stream = blob_client.download_blob()
         raw_bytes = stream.readall()
-        
-        try:
-            content = raw_bytes.decode('utf-8')
-        except UnicodeDecodeError:
+
+        is_text = False
+        text_content = ""
+        is_image = content_type.startswith('image/')
+        is_pdf = content_type == 'application/pdf'
+
+        if not is_image and not is_pdf:
             try:
-                content = raw_bytes.decode('latin-1')
-            except Exception:
-                return jsonify({
-                    "success": False,
-                    "error": "This file appears to be in a binary format (e.g., image, executable, archive) and cannot be edited in-browser. Please download it directly."
-                }), 400
-                
+                text_content = raw_bytes.decode('utf-8')
+                is_text = True
+            except UnicodeDecodeError:
+                is_text = False
+
+        b64_data = ""
+        if is_image or is_pdf or not is_text:
+            b64_data = base64.b64encode(raw_bytes).decode('utf-8')
+
         return jsonify({
             "success": True,
             "name": blob_name,
-            "content": content,
-            "size": size,
-            "content_type": content_type
+            "size": props.size,
+            "content_type": content_type,
+            "is_text": is_text,
+            "is_image": is_image,
+            "is_pdf": is_pdf,
+            "content": text_content if is_text else b64_data,
+            "last_modified": props.last_modified.isoformat() if props.last_modified else None
         })
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 400
 
 @ui.route('/blobs/<container_name>/save-content', methods=['POST'])
 def save_blob_content(container_name):
     if not require_auth():
         return jsonify({"success": False, "error": "Not authenticated"}), 401
-        
+    if not has_write_permission():
+        return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
+
     data = request.get_json(silent=True) or request.form
-    blob_name = data.get('blob_name')
+    blob_name = data.get('name')
     content = data.get('content')
-    
+
     if not blob_name or content is None:
-        return jsonify({"success": False, "error": "Blob name and content are required"}), 400
-        
+        return jsonify({"success": False, "error": "Blob name and content required"}), 400
+
     try:
-        client = get_blob_service().get_blob_client(container_name, blob_name)
+        service = get_blob_service()
+        container_client = service.get_container_client(container_name)
         guessed_type = mimetypes.guess_type(blob_name)[0] or 'text/plain'
-        client.upload_blob(
+        container_client.upload_blob(
+            name=blob_name,
             data=content.encode('utf-8'),
             overwrite=True,
             content_settings=ContentSettings(content_type=guessed_type)
         )
-        return jsonify({"success": True, "message": f"Blob '{blob_name}' saved successfully!"})
+        log_activity('blob', 'EDIT_BLOB_CONTENT', f"{container_name}/{blob_name}", 'SUCCESS')
+        return jsonify({"success": True, "message": "Saved successfully"})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        log_activity('blob', 'EDIT_BLOB_CONTENT', f"{container_name}/{blob_name}", 'FAILED', details=str(e))
+        return jsonify({"success": False, "error": str(e)}), 400
 
 @ui.route('/blobs/<container_name>/create-folder', methods=['POST'])
 def create_blob_folder(container_name):
     if not require_auth():
-        return redirect(url_for('ui.login'))
-    folder = request.form.get('folder', '').strip().rstrip('/') + '/'
-    if not folder or folder == '/':
-        flash("Folder name cannot be empty.")
-        return redirect(url_for('ui.view_blobs', container_name=container_name))
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+    if not has_write_permission():
+        return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
 
-    client = get_blob_service().get_container_client(container_name)
+    data = request.get_json(silent=True) or request.form
+    folder_path = data.get('folder_path', '').strip().strip('/')
+    if not folder_path:
+        return jsonify({"success": False, "error": "Folder path is required"}), 400
+
+    placeholder = f"{folder_path}/.keep"
     try:
-        client.upload_blob(name=folder, data=b'', overwrite=False)
-        flash(f"Folder '{folder}' created.")
+        service = get_blob_service()
+        container_client = service.get_container_client(container_name)
+        container_client.upload_blob(name=placeholder, data=b'', overwrite=True)
+        log_activity('blob', 'CREATE_FOLDER', f"{container_name}/{folder_path}", 'SUCCESS')
+        return jsonify({"success": True, "message": f"Folder '{folder_path}' created."})
     except Exception as e:
-        flash(f"Failed to create folder: {e}")
-    return redirect(url_for('ui.view_blobs', container_name=container_name))
+        log_activity('blob', 'CREATE_FOLDER', f"{container_name}/{folder_path}", 'FAILED', details=str(e))
+        return jsonify({"success": False, "error": str(e)}), 400
 
 @ui.route('/blobs/<container_name>/download')
 def download_blob(container_name):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    blob_name = request.args.get('blob_name')
-    client = get_blob_service().get_blob_client(container_name, blob_name)
-    stream = client.download_blob()
-    data = stream.readall()
-    mime_type = mimetypes.guess_type(blob_name)[0] or 'application/octet-stream'
-    return send_file(io.BytesIO(data), as_attachment=True, download_name=blob_name.split('/')[-1], mimetype=mime_type)
+    name = request.args.get('name')
+    service = get_blob_service()
+    blob_client = service.get_container_client(container_name).get_blob_client(name)
+    stream = io.BytesIO()
+    blob_client.download_blob().readinto(stream)
+    stream.seek(0)
+    filename = secure_filename(name.split('/')[-1]) or 'download'
+    return send_file(stream, download_name=filename, as_attachment=True)
 
 @ui.route('/blobs/<container_name>/delete', methods=['POST'])
 def delete_blob(container_name):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    blob_name = request.form.get('blob_name')
-    client = get_blob_service().get_blob_client(container_name, blob_name)
+    if not has_write_permission():
+        flash("Permission denied. Reader role is read-only.")
+        return redirect(url_for('ui.view_blobs', container_name=container_name))
+        
+    name = request.form.get('blob_name')
     try:
-        client.delete_blob()
-        flash(f"Deleted '{blob_name}'")
+        service = get_blob_service()
+        service.get_container_client(container_name).delete_blob(name)
+        log_activity('blob', 'DELETE_BLOB', f"{container_name}/{name}", 'SUCCESS')
+        flash(f"Blob '{name}' deleted.")
     except Exception as e:
-        flash(f"Delete failed: {e}")
+        log_activity('blob', 'DELETE_BLOB', f"{container_name}/{name}", 'FAILED', details=str(e))
+        flash(f"Error deleting blob: {e}")
     return redirect(url_for('ui.view_blobs', container_name=container_name))
 
 @ui.route('/blobs/<container_name>/download-selected', methods=['POST'])
 def download_selected_blobs(container_name):
     if not require_auth():
-        return redirect(url_for('ui.login'))
-        
-    blob_names = request.form.getlist('blob_names')
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+
+    data = request.get_json(silent=True) or request.form
+    blob_names = data.get('blobs', [])
+    if isinstance(blob_names, str):
+        blob_names = [b.strip() for b in blob_names.split(',') if b.strip()]
+
     if not blob_names:
-        raw = request.form.get('blob_names_json')
-        if raw:
-            try:
-                blob_names = json.loads(raw)
-            except Exception:
-                blob_names = [b.strip() for b in raw.split(',') if b.strip()]
-                
-    if not blob_names:
-        flash("No blobs selected for download.")
-        return redirect(url_for('ui.view_blobs', container_name=container_name))
-        
+        return jsonify({"success": False, "error": "No blobs selected"}), 400
+
     service = get_blob_service()
     container_client = service.get_container_client(container_name)
-    
-    # If single blob selected, download file directly
+
+    # If single blob, download directly
     if len(blob_names) == 1:
-        blob_name = blob_names[0]
+        name = blob_names[0]
         try:
-            client = container_client.get_blob_client(blob_name)
-            stream = client.download_blob()
-            data = stream.readall()
-            mime_type = mimetypes.guess_type(blob_name)[0] or 'application/octet-stream'
-            return send_file(io.BytesIO(data), as_attachment=True, download_name=blob_name.split('/')[-1], mimetype=mime_type)
+            blob_client = container_client.get_blob_client(name)
+            stream = io.BytesIO()
+            blob_client.download_blob().readinto(stream)
+            stream.seek(0)
+            filename = name.split('/')[-1] or 'download'
+            return send_file(stream, download_name=filename, as_attachment=True)
         except Exception as e:
-            flash(f"Download failed: {e}")
-            return redirect(url_for('ui.view_blobs', container_name=container_name))
-        
-    # If multiple blobs, package into in-memory ZIP
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    # If multiple blobs, bundle into a ZIP archive
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         for name in blob_names:
             try:
-                client = container_client.get_blob_client(name)
-                blob_data = client.download_blob().readall()
-                zip_file.writestr(name, blob_data)
+                blob_client = container_client.get_blob_client(name)
+                blob_data = blob_client.download_blob().readall()
+                zip_path = name.lstrip('/')
+                zip_file.writestr(zip_path, blob_data)
             except Exception as e:
-                print(f"Error adding {name} to zip: {e}")
-                
+                print(f"Failed to add {name} to zip: {e}")
+
     zip_buffer.seek(0)
-    return send_file(
-        zip_buffer,
-        as_attachment=True,
-        download_name=f"{container_name}-selected.zip",
-        mimetype='application/zip'
-    )
+    zip_filename = f"{secure_filename(container_name)}_selected_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    return send_file(zip_buffer, mimetype='application/zip', download_name=zip_filename, as_attachment=True)
 
 @ui.route('/blobs/<container_name>/download-all')
 def download_all_blobs(container_name):
     if not require_auth():
         return redirect(url_for('ui.login'))
-        
+
     service = get_blob_service()
     container_client = service.get_container_client(container_name)
-    
-    try:
-        blobs = list(container_client.list_blobs())
-    except Exception as e:
-        flash(f"Error listing blobs for download: {e}")
-        return redirect(url_for('ui.view_blobs', container_name=container_name))
-        
-    if not blobs:
-        flash("Container is empty. Nothing to download.")
-        return redirect(url_for('ui.view_blobs', container_name=container_name))
-        
+
     zip_buffer = io.BytesIO()
+    count = 0
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        for b in blobs:
-            if b.name.endswith('/'):
-                continue
+        for blob in container_client.list_blobs():
             try:
-                client = container_client.get_blob_client(b.name)
-                blob_data = client.download_blob().readall()
-                zip_file.writestr(b.name, blob_data)
+                blob_client = container_client.get_blob_client(blob.name)
+                blob_data = blob_client.download_blob().readall()
+                zip_path = blob.name.lstrip('/')
+                zip_file.writestr(zip_path, blob_data)
+                count += 1
             except Exception as e:
-                print(f"Error zipping {b.name}: {e}")
-                
+                print(f"Failed to add {blob.name} to zip: {e}")
+
+    if count == 0:
+        flash("No blobs available to download in this container.")
+        return redirect(url_for('ui.view_blobs', container_name=container_name))
+
     zip_buffer.seek(0)
-    return send_file(
-        zip_buffer,
-        as_attachment=True,
-        download_name=f"{container_name}-all.zip",
-        mimetype='application/zip'
-    )
+    zip_filename = f"{secure_filename(container_name)}_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    return send_file(zip_buffer, mimetype='application/zip', download_name=zip_filename, as_attachment=True)
 
 @ui.route('/blobs/<container_name>/empty', methods=['POST'])
 def empty_container(container_name):
     if not require_auth():
         return redirect(url_for('ui.login'))
-        
+    if not has_write_permission():
+        flash("Permission denied. Reader role is read-only.")
+        return redirect(url_for('ui.view_blobs', container_name=container_name))
+
     service = get_blob_service()
     container_client = service.get_container_client(container_name)
-    
+
+    deleted_count = 0
     try:
-        blobs = list(container_client.list_blobs())
-        deleted = 0
-        for b in blobs:
-            try:
-                container_client.delete_blob(b.name)
-                deleted += 1
-            except Exception as e:
-                print(f"Error deleting {b.name}: {e}")
-                
-        flash(f"Emptied container '{container_name}'. Deleted {deleted} blob(s).")
+        for blob in container_client.list_blobs():
+            container_client.delete_blob(blob.name)
+            deleted_count += 1
+        log_activity('blob', 'EMPTY_CONTAINER', container_name, 'SUCCESS', details=f"Deleted {deleted_count} blobs")
+        flash(f"Emptied container '{container_name}'. Deleted {deleted_count} blobs.")
     except Exception as e:
+        log_activity('blob', 'EMPTY_CONTAINER', container_name, 'FAILED', details=str(e))
         flash(f"Error emptying container: {e}")
-        
+
+    return redirect(url_for('ui.view_blobs', container_name=container_name))
+
 @ui.route('/blobs/<container_name>/rename', methods=['POST'])
 def rename_blob(container_name):
     if not require_auth():
-        if request.is_json: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-        return redirect(url_for('ui.login'))
-    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-    data = request.get_json(silent=True) if request.is_json else request.form
-    old_name = data.get('old_name') or ''
-    new_name = data.get('new_name') or ''
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+    if not has_write_permission():
+        return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
+
+    data = request.get_json(silent=True) or request.form
+    old_name = data.get('old_name')
+    new_name = data.get('new_name')
+
     if not old_name or not new_name:
-        msg = "Source and target blob names are required."
-        return jsonify({'success': False, 'error': msg}) if is_ajax else (flash(msg), redirect(url_for('ui.view_blobs', container_name=container_name)))
+        return jsonify({"success": False, "error": "Old and new blob names are required"}), 400
+
+    service = get_blob_service()
+    container_client = service.get_container_client(container_name)
+
     try:
-        client = get_blob_service().get_container_client(container_name)
-        source_blob = client.get_blob_client(old_name)
-        dest_blob = client.get_blob_client(new_name)
+        source_blob = container_client.get_blob_client(old_name)
+        dest_blob = container_client.get_blob_client(new_name)
+
         dest_blob.start_copy_from_url(source_blob.url)
         source_blob.delete_blob()
-        if is_ajax: return jsonify({'success': True})
-        flash(f"Blob renamed from '{old_name}' to '{new_name}'")
+        log_activity('blob', 'RENAME_BLOB', f"{container_name}/{old_name} -> {new_name}", 'SUCCESS')
+        return jsonify({"success": True, "message": f"Renamed '{old_name}' to '{new_name}'."})
     except Exception as e:
-        if is_ajax: return jsonify({'success': False, 'error': str(e)})
-        flash(f"Rename failed: {e}")
-    return redirect(url_for('ui.view_blobs', container_name=container_name))
+        log_activity('blob', 'RENAME_BLOB', f"{container_name}/{old_name} -> {new_name}", 'FAILED', details=str(e))
+        return jsonify({"success": False, "error": str(e)}), 400
 
 @ui.route('/blobs/<container_name>/move-copy', methods=['POST'])
 def move_copy_blob(container_name):
     if not require_auth():
-        if request.is_json: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-        return redirect(url_for('ui.login'))
-    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-    data = request.get_json(silent=True) if request.is_json else request.form
-    blob_name = data.get('blob_name') or ''
-    dest_container = data.get('dest_container') or container_name
-    dest_blob_name = data.get('dest_blob_name') or blob_name
-    action_type = data.get('action_type', 'move')
-    if not blob_name or not dest_container or not dest_blob_name:
-        msg = "Blob name and destination details are required."
-        return jsonify({'success': False, 'error': msg}) if is_ajax else (flash(msg), redirect(url_for('ui.view_blobs', container_name=container_name)))
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+    if not has_write_permission():
+        return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
+
+    data = request.get_json(silent=True) or request.form
+    blob_name = data.get('blob_name')
+    dest_container = data.get('dest_container')
+    dest_name = data.get('dest_name') or blob_name
+    action_type = data.get('action_type', 'copy')
+
+    if not blob_name or not dest_container:
+        return jsonify({"success": False, "error": "Blob name and destination container are required"}), 400
+
+    service = get_blob_service()
+    src_client = service.get_container_client(container_name).get_blob_client(blob_name)
+    dest_client = service.get_container_client(dest_container).get_blob_client(dest_name)
+
     try:
-        svc = get_blob_service()
-        source_blob = svc.get_blob_client(container=container_name, blob=blob_name)
-        dest_blob = svc.get_blob_client(container=dest_container, blob=dest_blob_name)
-        dest_blob.start_copy_from_url(source_blob.url)
+        dest_client.start_copy_from_url(src_client.url)
         if action_type == 'move':
-            source_blob.delete_blob()
-        if is_ajax: return jsonify({'success': True})
-        flash(f"Blob '{blob_name}' {'moved' if action_type == 'move' else 'copied'} to '{dest_container}/{dest_blob_name}'")
+            src_client.delete_blob()
+        log_activity('blob', f"{action_type.upper()}_BLOB", f"{container_name}/{blob_name} -> {dest_container}/{dest_name}", 'SUCCESS')
+        return jsonify({"success": True, "message": f"Successfully {'moved' if action_type == 'move' else 'copied'} to '{dest_container}/{dest_name}'."})
     except Exception as e:
-        if is_ajax: return jsonify({'success': False, 'error': str(e)})
-        flash(f"Move/Copy failed: {e}")
-    return redirect(url_for('ui.view_blobs', container_name=container_name))
+        log_activity('blob', f"{action_type.upper()}_BLOB", f"{container_name}/{blob_name} -> {dest_container}/{dest_name}", 'FAILED', details=str(e))
+        return jsonify({"success": False, "error": str(e)}), 400
 
 # -----------------------
-# File Share Routes
+# File Shares Routes
 # -----------------------
 @ui.route('/fileshares')
 def fileshares():
     if not require_auth():
         return redirect(url_for('ui.login'))
-    
+
     try:
-        svc = get_share_service()
-        shares = list(svc.list_shares())
+        shares = list(get_share_service().list_shares())
     except Exception as e:
-        flash(f"Error loading shares: {e}")
+        flash(f"Error loading file shares: {e}")
         shares = []
-        
+
     tree = load_sidebar_tree()
-    return render_template('fileshares.html', shares=shares, share=None, sidebar_tree=tree, active_service='fileshares', active_item=None)
+    return render_template('fileshares.html', shares=shares, share_name=None, sidebar_tree=tree, active_service='fileshares', active_item=None)
 
 @ui.route('/fileshares/create', methods=['POST'])
 def create_share():
     if not require_auth():
         return redirect(url_for('ui.login'))
-    name = request.form.get('name')
+    if not is_admin():
+        flash("Permission denied. Administrator role required to create file shares.")
+        return redirect(url_for('ui.fileshares'))
+        
+    name = request.form.get('name') or request.form.get('share_name')
     try:
         get_share_service().create_share(name)
-        flash("Share created")
+        log_activity('file', 'CREATE_SHARE', name, 'SUCCESS')
+        flash(f"File share '{name}' created.")
     except Exception as e:
-        flash(f"Create failed: {e}")
+        log_activity('file', 'CREATE_SHARE', name, 'FAILED', details=str(e))
+        flash(f"Error creating file share: {e}")
     return redirect(url_for('ui.fileshares'))
 
 @ui.route('/fileshares/delete', methods=['POST'])
 def delete_share():
     if not require_auth():
         return redirect(url_for('ui.login'))
-    name = request.form.get('name')
+    if not is_admin():
+        flash("Permission denied. Administrator role required to delete file shares.")
+        return redirect(url_for('ui.fileshares'))
+        
+    name = request.form.get('share_name')
     try:
         get_share_service().delete_share(name)
-        flash("Deleted")
+        log_activity('file', 'DELETE_SHARE', name, 'SUCCESS')
+        flash(f"File share '{name}' deleted.")
     except Exception as e:
-        flash(f"Delete failed: {e}")
+        log_activity('file', 'DELETE_SHARE', name, 'FAILED', details=str(e))
+        flash(f"Error deleting file share: {e}")
     return redirect(url_for('ui.fileshares'))
 
 @ui.route('/fileshares/<share>', methods=['GET', 'POST'])
 def list_files(share):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    
-    client = get_share_service().get_share_client(share)
-    
-    # Handle multiple files upload
-    if request.method == 'POST' and 'files' in request.files:
-        files = request.files.getlist('files')
-        uploaded = []
-        failed = []
-        
-        for f in files:
-            if not f or not f.filename:
-                continue
-            filename = secure_filename(f.filename)
-            file_client = client.get_file_client(filename)
-            try:
-                data = f.read()
-                file_client.create_file(size=len(data))
-                file_client.upload_file(data)
-                uploaded.append(f.filename)
-            except Exception as e:
-                failed.append(f"{f.filename} ({e})")
-                
-        if uploaded:
-            flash(f"Successfully uploaded {len(uploaded)} file(s).")
-        if failed:
-            flash(f"Failed to upload: {', '.join(failed)}")
-            
-        return redirect(url_for('ui.list_files', share=share))
 
-    from_date_str = request.args.get('from_date', '').strip()
-    to_date_str = request.args.get('to_date', '').strip()
+    path = request.args.get('path', '').strip('/')
+    search_query = request.args.get('q', '').strip()
+    from_date = request.args.get('from_date', '').strip()
+    to_date = request.args.get('to_date', '').strip()
 
     from_dt = None
     to_dt = None
-    if from_date_str:
+    if from_date:
         try:
-            from_dt = datetime.strptime(from_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            from_dt = datetime.strptime(from_date, "%Y-%m-%d").date()
         except Exception:
-            from_dt = None
-    if to_date_str:
+            pass
+    if to_date:
         try:
-            to_dt = datetime.strptime(to_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
+            to_dt = datetime.strptime(to_date, "%Y-%m-%d").date()
         except Exception:
-            to_dt = None
+            pass
 
     try:
-        root = client.get_directory_client('')
-        raw_items = list(root.list_directories_and_files())
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+    try:
+        limit = int(request.args.get('limit', 20))
+        if limit not in [10, 15, 20, 50, 100]:
+            limit = 20
+    except ValueError:
+        limit = 20
+
+    sort_by = request.args.get('sort', 'name').strip().lower()
+    order = request.args.get('order', 'asc').strip().lower()
+
+    share_client = get_share_service().get_share_client(share)
+    dir_client = share_client.get_directory_client(path)
+
+    # Handle Directory Creation
+    if request.method == 'POST' and 'dir_name' in request.form:
+        if not has_write_permission():
+            flash("Permission denied. Reader role is read-only.")
+            return redirect(url_for('ui.list_files', share=share, path=path))
+            
+        new_dir = request.form.get('dir_name', '').strip()
+        try:
+            dir_client.create_subdirectory(new_dir)
+            log_activity('file', 'CREATE_DIRECTORY', f"{share}/{path}/{new_dir}".strip('/'), 'SUCCESS')
+            flash(f"Directory '{new_dir}' created.")
+        except Exception as e:
+            log_activity('file', 'CREATE_DIRECTORY', f"{share}/{path}/{new_dir}".strip('/'), 'FAILED', details=str(e))
+            flash(f"Error creating directory: {e}")
+        return redirect(url_for('ui.list_files', share=share, path=path))
+
+    try:
+        raw_items = list(dir_client.list_directories_and_files())
     except Exception as e:
-        flash(f"Error listing files: {e}")
+        flash(f"Error loading files: {e}")
         raw_items = []
 
-    if from_dt or to_dt:
-        filtered_items = []
-        for item in raw_items:
-            lm = getattr(item, 'last_modified', None)
+    filtered_items = []
+    for item in raw_items:
+        if search_query and search_query.lower() not in item['name'].lower():
+            continue
+        if (from_dt or to_dt) and not item.get('is_directory', False):
+            lm = item.get('last_modified')
             if lm:
-                if getattr(lm, 'tzinfo', None) is None:
-                    lm = lm.replace(tzinfo=timezone.utc)
-                if from_dt and lm < from_dt:
+                f_date = lm.date()
+                if from_dt and f_date < from_dt:
                     continue
-                if to_dt and lm > to_dt:
+                if to_dt and f_date > to_dt:
                     continue
-            filtered_items.append(item)
-        items = filtered_items
-    else:
-        items = raw_items
+        filtered_items.append(item)
+
+    def sort_key(item):
+        is_dir = 0 if item.get('is_directory', False) else 1
+        if sort_by == 'size':
+            return (is_dir, item.get('size', 0) or 0)
+        elif sort_by == 'date':
+            lm = item.get('last_modified')
+            return (is_dir, lm.timestamp() if lm else 0)
+        return (is_dir, item['name'].lower())
+
+    reverse = (order == 'desc')
+    filtered_items.sort(key=sort_key, reverse=reverse)
+
+    total_items = len(filtered_items)
+    total_pages = max(1, math.ceil(total_items / limit))
+    if page > total_pages:
+        page = total_pages
+
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    paginated_items = filtered_items[start_idx:end_idx]
+
+    # Breadcrumb parts
+    parts = []
+    accum = []
+    if path:
+        for p in path.split('/'):
+            accum.append(p)
+            parts.append({'name': p, 'path': '/'.join(accum)})
 
     tree = load_sidebar_tree()
-    try:
-        all_shares = [s.name for s in get_share_service().list_shares()]
-    except Exception:
-        all_shares = [share]
-
     return render_template(
         'fileshares.html',
-        share=share,
-        items=items,
-        all_shares=all_shares,
+        items=paginated_items,
+        share_name=share,
+        path=path,
+        path_parts=parts,
+        search_query=search_query,
+        page=page,
+        total_pages=total_pages,
+        limit=limit,
+        total_items=total_items,
+        sort_by=sort_by,
+        order=order,
+        from_date=from_date,
+        to_date=to_date,
         sidebar_tree=tree,
         active_service='fileshares',
-        active_item=share,
-        from_date=from_date_str,
-        to_date=to_date_str
+        active_item=share
     )
 
 @ui.route('/fileshares/<share>/upload', methods=['POST'])
 def upload_file(share):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    
-    files = request.files.getlist('files')
-    if not files or all(f.filename == '' for f in files):
-        flash("No files selected")
+    if not has_write_permission():
+        flash("Permission denied. Reader role is read-only.")
         return redirect(url_for('ui.list_files', share=share))
         
-    try:
-        client = get_share_service().get_share_client(share)
-        uploaded = []
-        failed = []
-        
-        for f in files:
-            if not f or not f.filename:
-                continue
-            filename = secure_filename(f.filename)
-            file_client = client.get_file_client(filename)
-            try:
-                data = f.read()
-                file_client.create_file(size=len(data))
-                file_client.upload_file(data)
-                uploaded.append(f.filename)
-            except Exception as e:
-                failed.append(f"{f.filename} ({e})")
-                
-        if uploaded:
-            flash(f"Successfully uploaded {len(uploaded)} file(s).")
-        if failed:
-            flash(f"Failed to upload: {', '.join(failed)}")
-            
-    except Exception as e:
-        flash(f"Upload process failed: {e}")
-        
-    return redirect(url_for('ui.list_files', share=share))
+    path = request.form.get('path', '').strip('/')
+    files = request.files.getlist('files')
+
+    if not files or not any(f.filename for f in files):
+        flash("No files selected for upload.")
+        return redirect(url_for('ui.list_files', share=share, path=path))
+
+    share_client = get_share_service().get_share_client(share)
+    dir_client = share_client.get_directory_client(path)
+
+    uploaded = []
+    failed = []
+    for file in files:
+        if not file or not file.filename:
+            continue
+        try:
+            file_client = dir_client.get_file_client(file.filename)
+            data = file.read()
+            file_client.upload_file(data)
+            uploaded.append(file.filename)
+            log_activity('file', 'UPLOAD_FILE', f"{share}/{path}/{file.filename}".strip('/'), 'SUCCESS')
+        except Exception as e:
+            failed.append(f"{file.filename} ({e})")
+            log_activity('file', 'UPLOAD_FILE', f"{share}/{path}/{file.filename}".strip('/'), 'FAILED', details=str(e))
+
+    if uploaded:
+        flash(f"Successfully uploaded {len(uploaded)} file(s).")
+    if failed:
+        flash(f"Failed to upload: {', '.join(failed)}")
+
+    return redirect(url_for('ui.list_files', share=share, path=path))
 
 @ui.route('/fileshares/<share>/download')
 def download_file(share):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    name = request.args.get('filename')
-    try:
-        client = get_share_service().get_share_client(share)
-        file_client = client.get_file_client(name)
-        stream = file_client.download_file().readall()
-        return send_file(io.BytesIO(stream), download_name=name, as_attachment=True)
-    except Exception as e:
-        flash(f"Download failed: {e}")
-        return redirect(url_for('ui.list_files', share=share))
+    path = request.args.get('path', '').strip('/')
+    share_client = get_share_service().get_share_client(share)
+    file_client = share_client.get_file_client(path)
+    stream = io.BytesIO()
+    file_client.download_file().readinto(stream)
+    stream.seek(0)
+    filename = secure_filename(path.split('/')[-1]) or 'download'
+    return send_file(stream, download_name=filename, as_attachment=True)
 
-@ui.route('/fileshares/<share>/file-content')
-def get_share_file_content(share):
+@ui.route('/fileshares/<share>/file-content', methods=['GET'])
+def get_file_content(share):
     if not require_auth():
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    filename = request.args.get('filename')
-    if not filename:
-        return jsonify({'success': False, 'error': 'Filename is required'}), 400
-    try:
-        client = get_share_service().get_share_client(share).get_file_client(filename)
-        stream = client.download_file()
-        raw_data = stream.readall()
-        try:
-            text = raw_data.decode('utf-8')
-            is_text = True
-        except Exception:
-            text = str(raw_data[:2000])
-            is_text = False
-        return jsonify({'success': True, 'content': text, 'is_text': is_text, 'filename': filename})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
 
-@ui.route('/fileshares/<share>/save-content', methods=['POST'])
-def save_share_file_content(share):
-    if not require_auth():
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    data = request.get_json(silent=True) if request.is_json else request.form
-    filename = data.get('filename')
-    content = data.get('content', '')
-    if not filename:
-        return jsonify({'success': False, 'error': 'Filename is required'}), 400
-    try:
-        client = get_share_service().get_share_client(share).get_file_client(filename)
-        raw_bytes = content.encode('utf-8')
-        client.create_file(size=len(raw_bytes))
-        client.upload_file(raw_bytes)
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+    path = request.args.get('path', '').strip('/')
+    if not path:
+        return jsonify({"success": False, "error": "File path required"}), 400
 
-@ui.route('/fileshares/<share>/rename-file', methods=['POST'])
-def rename_share_file(share):
-    if not require_auth():
-        if request.is_json: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-        return redirect(url_for('ui.login'))
-    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-    data = request.get_json(silent=True) if request.is_json else request.form
-    old_name = data.get('old_name') or ''
-    new_name = data.get('new_name') or ''
-    if not old_name or not new_name:
-        msg = "Old and new filenames are required."
-        return jsonify({'success': False, 'error': msg}) if is_ajax else (flash(msg), redirect(url_for('ui.list_files', share=share)))
     try:
         share_client = get_share_service().get_share_client(share)
-        source_file = share_client.get_file_client(old_name)
-        dest_file = share_client.get_file_client(new_name)
-        dest_file.start_copy_from_url(source_file.url)
-        source_file.delete_file()
-        if is_ajax: return jsonify({'success': True})
-        flash(f"File renamed from '{old_name}' to '{new_name}'")
+        file_client = share_client.get_file_client(path)
+        stream = io.BytesIO()
+        file_client.download_file().readinto(stream)
+        stream.seek(0)
+        raw_bytes = stream.read()
+
+        try:
+            content = raw_bytes.decode('utf-8')
+            return jsonify({"success": True, "content": content, "path": path})
+        except UnicodeDecodeError:
+            return jsonify({"success": False, "error": "Binary file cannot be edited in text editor."}), 400
     except Exception as e:
-        if is_ajax: return jsonify({'success': False, 'error': str(e)})
-        flash(f"Rename failed: {e}")
-    return redirect(url_for('ui.list_files', share=share))
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@ui.route('/fileshares/<share>/save-content', methods=['POST'])
+def save_file_content(share):
+    if not require_auth():
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+    if not has_write_permission():
+        return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
+
+    data = request.get_json(silent=True) or request.form
+    path = data.get('path', '').strip('/')
+    content = data.get('content')
+
+    if not path or content is None:
+        return jsonify({"success": False, "error": "Path and content are required"}), 400
+
+    try:
+        share_client = get_share_service().get_share_client(share)
+        file_client = share_client.get_file_client(path)
+        file_client.upload_file(content.encode('utf-8'))
+        log_activity('file', 'EDIT_FILE_CONTENT', f"{share}/{path}", 'SUCCESS')
+        return jsonify({"success": True, "message": "Saved successfully"})
+    except Exception as e:
+        log_activity('file', 'EDIT_FILE_CONTENT', f"{share}/{path}", 'FAILED', details=str(e))
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@ui.route('/fileshares/<share>/rename-file', methods=['POST'])
+def rename_file(share):
+    if not require_auth():
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+    if not has_write_permission():
+        return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
+
+    data = request.get_json(silent=True) or request.form
+    old_path = data.get('old_path', '').strip('/')
+    new_name = data.get('new_name', '').strip()
+
+    if not old_path or not new_name:
+        return jsonify({"success": False, "error": "Path and new name are required"}), 400
+
+    try:
+        parent_dir = '/'.join(old_path.split('/')[:-1])
+        new_path = f"{parent_dir}/{new_name}".strip('/')
+        share_client = get_share_service().get_share_client(share)
+        old_client = share_client.get_file_client(old_path)
+        new_client = share_client.get_file_client(new_path)
+
+        data = old_client.download_file().readall()
+        new_client.upload_file(data)
+        old_client.delete_file()
+        log_activity('file', 'RENAME_FILE', f"{share}/{old_path} -> {new_path}", 'SUCCESS')
+        return jsonify({"success": True, "message": f"Renamed to '{new_name}'."})
+    except Exception as e:
+        log_activity('file', 'RENAME_FILE', f"{share}/{old_path}", 'FAILED', details=str(e))
+        return jsonify({"success": False, "error": str(e)}), 400
 
 @ui.route('/fileshares/<share>/move-copy-file', methods=['POST'])
-def move_copy_share_file(share):
+def move_copy_file(share):
     if not require_auth():
-        if request.is_json: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-        return redirect(url_for('ui.login'))
-    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-    data = request.get_json(silent=True) if request.is_json else request.form
-    filename = data.get('filename') or ''
-    dest_share = data.get('dest_share') or share
-    dest_filename = data.get('dest_filename') or filename
-    action_type = data.get('action_type', 'move')
-    if not filename or not dest_share or not dest_filename:
-        msg = "Filename and destination details are required."
-        return jsonify({'success': False, 'error': msg}) if is_ajax else (flash(msg), redirect(url_for('ui.list_files', share=share)))
+        return jsonify({"success": False, "error": "Not authenticated"}), 401
+    if not has_write_permission():
+        return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
+
+    data = request.get_json(silent=True) or request.form
+    src_path = data.get('src_path', '').strip('/')
+    dest_share = data.get('dest_share', '').strip()
+    dest_path = data.get('dest_path', '').strip('/')
+    action_type = data.get('action_type', 'copy')
+
+    if not src_path or not dest_share:
+        return jsonify({"success": False, "error": "Source path and destination share are required"}), 400
+
     try:
         svc = get_share_service()
-        source_file = svc.get_share_client(share).get_file_client(filename)
-        dest_file = svc.get_share_client(dest_share).get_file_client(dest_filename)
-        dest_file.start_copy_from_url(source_file.url)
+        src_client = svc.get_share_client(share).get_file_client(src_path)
+        dest_client = svc.get_share_client(dest_share).get_file_client(dest_path or src_path.split('/')[-1])
+
+        data = src_client.download_file().readall()
+        dest_client.upload_file(data)
         if action_type == 'move':
-            source_file.delete_file()
-        if is_ajax: return jsonify({'success': True})
-        flash(f"File '{filename}' {'moved' if action_type == 'move' else 'copied'} to '{dest_share}/{dest_filename}'")
+            src_client.delete_file()
+        log_activity('file', f"{action_type.upper()}_FILE", f"{share}/{src_path} -> {dest_share}/{dest_path}", 'SUCCESS')
+        return jsonify({"success": True, "message": f"Successfully {'moved' if action_type == 'move' else 'copied'} file."})
     except Exception as e:
-        if is_ajax: return jsonify({'success': False, 'error': str(e)})
-        flash(f"Move/Copy failed: {e}")
-    return redirect(url_for('ui.list_files', share=share))
+        log_activity('file', f"{action_type.upper()}_FILE", f"{share}/{src_path} -> {dest_share}/{dest_path}", 'FAILED', details=str(e))
+        return jsonify({"success": False, "error": str(e)}), 400
 
 @ui.route('/fileshares/<share>/delete', methods=['POST'])
 def delete_file(share):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    name = request.form.get('name')
+    if not has_write_permission():
+        flash("Permission denied. Reader role is read-only.")
+        return redirect(url_for('ui.list_files', share=share))
+        
+    path = request.form.get('path', '').strip('/')
+    is_dir = request.form.get('is_directory') == 'true'
+    current_path = request.form.get('current_path', '').strip('/')
+
+    share_client = get_share_service().get_share_client(share)
+
     try:
-        client = get_share_service().get_share_client(share)
-        file_client = client.get_file_client(name)
-        file_client.delete_file()
-        flash("Deleted")
+        if is_dir:
+            share_client.get_directory_client(path).delete_directory()
+            log_activity('file', 'DELETE_DIRECTORY', f"{share}/{path}", 'SUCCESS')
+            flash(f"Directory '{path}' deleted.")
+        else:
+            share_client.get_file_client(path).delete_file()
+            log_activity('file', 'DELETE_FILE', f"{share}/{path}", 'SUCCESS')
+            flash(f"File '{path}' deleted.")
     except Exception as e:
-        flash(f"Delete failed: {e}")
-    return redirect(url_for('ui.list_files', share=share))
+        log_activity('file', 'DELETE_FILE', f"{share}/{path}", 'FAILED', details=str(e))
+        flash(f"Error deleting: {e}")
+
+    return redirect(url_for('ui.list_files', share=share, path=current_path))
 
 # -----------------------
-# Queue Helper Functions
-# -----------------------
-def encode_message_payload(text, encoding_mode="base64"):
-    """
-    Encodes text based on the selected mode:
-    - 'base64': Converts UTF-8 string to Base64 (Standard for Azure Functions / WebJobs / Logic Apps)
-    - 'plain': Keeps raw UTF-8 string
-    """
-    if text is None:
-        text = ""
-    if encoding_mode == "base64":
-        return base64.b64encode(text.encode("utf-8")).decode("utf-8")
-    return text
-
-def decode_message_payload(raw_content):
-    """
-    Smart decodes message content.
-    Handles standard Base64, multi-line Base64, URL-safe Base64, and unpadded Base64.
-    Returns tuple: (decoded_text, is_base64)
-    """
-    if raw_content is None:
-        return "", False
-    if isinstance(raw_content, bytes):
-        try:
-            raw_content = raw_content.decode('utf-8')
-        except Exception:
-            raw_content = str(raw_content)
-    else:
-        raw_content = str(raw_content)
-
-    clean_content = raw_content.strip()
-    if not clean_content:
-        return "", False
-
-    # Remove internal whitespace, newlines, carriage returns from candidate base64
-    cleaned = re.sub(r'[\r\n\s\t]', '', clean_content)
-    
-    # Must be valid length and character set for Base64
-    if len(cleaned) < 4 or not re.match(r'^[A-Za-z0-9+/=_-]+$', cleaned):
-        return clean_content, False
-
-    # Add missing padding if omitted
-    missing_padding = len(cleaned) % 4
-    if missing_padding:
-        cleaned += '=' * (4 - missing_padding)
-
-    # Try standard Base64 and URL-safe Base64
-    for decode_fn in (base64.b64decode, base64.urlsafe_b64decode):
-        try:
-            decoded_bytes = decode_fn(cleaned)
-            decoded_str = decoded_bytes.decode('utf-8')
-            
-            # Verify decoded string is non-empty, distinct from original, and composed of valid text
-            if decoded_str and decoded_str.strip() and decoded_str != clean_content:
-                printable_count = sum(1 for c in decoded_str if c.isprintable() or c in '\r\n\t')
-                if printable_count / len(decoded_str) >= 0.8:
-                    return decoded_str, True
-        except Exception:
-            pass
-
-    return clean_content, False
-
-def receive_and_find_messages(queue_client, target_ids, max_batches=3):
-    """
-    Receives messages from queue to find specific message ID(s).
-    Returns a dict mapping msg_id -> received QueueMessage (which has .pop_receipt).
-    Resets visibility of any unselected messages to 0 immediately.
-    """
-    target_ids_set = set(target_ids)
-    found = {}
-    unselected = []
-    
-    for _ in range(max_batches):
-        if len(found) == len(target_ids_set):
-            break
-        try:
-            msgs = list(queue_client.receive_messages(messages_per_page=32, visibility_timeout=30))
-        except Exception:
-            break
-        if not msgs:
-            break
-        for m in msgs:
-            if m.id in target_ids_set:
-                found[m.id] = m
-            else:
-                unselected.append(m)
-                
-    # Reset visibility for unselected messages so they don't stay hidden
-    for m in unselected:
-        if m.id not in found:
-            try:
-                queue_client.update_message(m.id, m.pop_receipt, visibility_timeout=0)
-            except Exception:
-                pass
-            
-    return found
-
-def format_queue_msg_time(msg, *attr_names):
-    """Safely extracts and formats datetime from a QueueMessage across different SDK versions."""
-    for attr in attr_names:
-        val = getattr(msg, attr, None)
-        if val is not None:
-            if hasattr(val, 'strftime'):
-                return val.strftime('%Y-%m-%d %H:%M:%S UTC')
-            return str(val)
-    return '--'
-
-# -----------------------
-# Queue Routes
+# Queues Routes
 # -----------------------
 @ui.route('/queues')
 def queues():
     if not require_auth():
         return redirect(url_for('ui.login'))
-    
+
     try:
-        svc = get_queue_service()
-        queues = list(svc.list_queues())
+        queue_list = list(get_queue_service().list_queues())
     except Exception as e:
         flash(f"Error loading queues: {e}")
-        queues = []
-        
+        queue_list = []
+
     tree = load_sidebar_tree()
-    return render_template('queues.html', queues=queues, queue=None, sidebar_tree=tree, active_service='queues', active_item=None)
+    return render_template('queues.html', queues=queue_list, queue_name=None, sidebar_tree=tree, active_service='queues', active_item=None)
 
 @ui.route('/queues/create', methods=['POST'])
 def create_queue():
     if not require_auth():
         return redirect(url_for('ui.login'))
-    name = request.form.get('name')
+    if not is_admin():
+        flash("Permission denied. Administrator role required to create queues.")
+        return redirect(url_for('ui.queues'))
+        
+    name = request.form.get('name') or request.form.get('queue_name')
     try:
         get_queue_service().create_queue(name)
-        flash(f"Queue '{name}' created")
+        log_activity('queue', 'CREATE_QUEUE', name, 'SUCCESS')
+        flash(f"Queue '{name}' created.")
     except Exception as e:
-        flash(f"Create failed: {e}")
+        log_activity('queue', 'CREATE_QUEUE', name, 'FAILED', details=str(e))
+        flash(f"Error creating queue: {e}")
     return redirect(url_for('ui.queues'))
 
 @ui.route('/queues/delete', methods=['POST'])
 def delete_queue():
     if not require_auth():
         return redirect(url_for('ui.login'))
-    name = request.form.get('name')
+    if not is_admin():
+        flash("Permission denied. Administrator role required to delete queues.")
+        return redirect(url_for('ui.queues'))
+        
+    name = request.form.get('queue_name')
     try:
         get_queue_service().delete_queue(name)
-        flash(f"Queue '{name}' deleted")
+        log_activity('queue', 'DELETE_QUEUE', name, 'SUCCESS')
+        flash(f"Queue '{name}' deleted.")
     except Exception as e:
-        flash(f"Delete failed: {e}")
+        log_activity('queue', 'DELETE_QUEUE', name, 'FAILED', details=str(e))
+        flash(f"Error deleting queue: {e}")
     return redirect(url_for('ui.queues'))
 
 @ui.route('/queues/<queue>')
 def view_queue(queue):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    
-    svc = get_queue_service()
-    client = svc.get_queue_client(queue)
-    try:
-        messages = list(client.peek_messages(max_messages=32))
-    except Exception as e:
-        flash(f"Error peeking queue: {e}")
-        return redirect(url_for('ui.queues'))
 
-    from_date_str = request.args.get('from_date', '').strip()
-    to_date_str = request.args.get('to_date', '').strip()
+    search_query = request.args.get('q', '').strip()
+    from_date = request.args.get('from_date', '').strip()
+    to_date = request.args.get('to_date', '').strip()
 
     from_dt = None
     to_dt = None
-    if from_date_str:
+    if from_date:
         try:
-            from_dt = datetime.strptime(from_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            from_dt = datetime.strptime(from_date, "%Y-%m-%d").date()
         except Exception:
-            from_dt = None
-    if to_date_str:
+            pass
+    if to_date:
         try:
-            to_dt = datetime.strptime(to_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
+            to_dt = datetime.strptime(to_date, "%Y-%m-%d").date()
         except Exception:
-            to_dt = None
+            pass
 
-    for m in messages:
-        decoded_text, is_b64 = decode_message_payload(m.content)
-        m.raw_content = m.content
-        m.decoded_content = decoded_text
-        m.is_base64 = is_b64
-        m_content_stripped = (m.content or '').strip()
-        decoded_stripped = (decoded_text or '').strip()
-        m.raw_preview = (m_content_stripped[:120] + "...") if len(m_content_stripped) > 120 else m_content_stripped
-        m.decoded_preview = (decoded_stripped[:120] + "...") if len(decoded_stripped) > 120 else decoded_stripped
-        m.preview = m.raw_preview
-        m.insertion_time_str = format_queue_msg_time(m, 'inserted_on', 'insertion_time')
-        m.expiration_time_str = format_queue_msg_time(m, 'expires_on', 'expiration_time')
-        m.dequeue_count = getattr(m, 'dequeue_count', 0)
-        m.encoded_json = json.dumps(m.content)
-
-    if from_dt or to_dt:
-        filtered_msgs = []
-        for m in messages:
-            it = getattr(m, 'inserted_on', None) or getattr(m, 'insertion_time', None)
-            if it:
-                if getattr(it, 'tzinfo', None) is None:
-                    it = it.replace(tzinfo=timezone.utc)
-                if from_dt and it < from_dt:
-                    continue
-                if to_dt and it > to_dt:
-                    continue
-            filtered_msgs.append(m)
-        messages = filtered_msgs
-
-    # Get list of all queue names for the Send/Move to Another Queue dropdown
     try:
-        all_queues = [q.name for q in svc.list_queues()]
-    except Exception:
-        all_queues = [queue]
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+    try:
+        limit = int(request.args.get('limit', 20))
+        if limit not in [10, 15, 20, 50, 100]:
+            limit = 20
+    except ValueError:
+        limit = 20
+
+    sort_by = request.args.get('sort', 'inserted_on').strip().lower()
+    order = request.args.get('order', 'desc').strip().lower()
+
+    queue_client = get_queue_service().get_queue_client(queue)
+
+    try:
+        raw_msgs = list(queue_client.peek_messages(max_messages=32))
+    except Exception as e:
+        flash(f"Error reading queue: {e}")
+        raw_msgs = []
+
+    filtered_msgs = []
+    for msg in raw_msgs:
+        if search_query and search_query.lower() not in (msg.content or '').lower() and search_query.lower() not in msg.id.lower():
+            continue
+        if from_dt or to_dt:
+            lm = getattr(msg, 'insertion_time', None)
+            if lm:
+                m_date = lm.date()
+                if from_dt and m_date < from_dt:
+                    continue
+                if to_dt and m_date > to_dt:
+                    continue
+        filtered_msgs.append(msg)
+
+    def sort_key(msg):
+        if sort_by == 'inserted_on':
+            return msg.insertion_time.timestamp() if getattr(msg, 'insertion_time', None) else 0
+        elif sort_by == 'expires_on':
+            return msg.expiration_time.timestamp() if getattr(msg, 'expiration_time', None) else 0
+        elif sort_by == 'dequeue_count':
+            return getattr(msg, 'dequeue_count', 0) or 0
+        return msg.id
+
+    reverse = (order == 'desc')
+    filtered_msgs.sort(key=sort_key, reverse=reverse)
+
+    total_items = len(filtered_msgs)
+    total_pages = max(1, math.ceil(total_items / limit))
+    if page > total_pages:
+        page = total_pages
+
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    paginated_msgs = filtered_msgs[start_idx:end_idx]
 
     tree = load_sidebar_tree()
     return render_template(
         'queues.html',
-        queue=queue,
-        messages=messages,
-        all_queues=all_queues,
+        messages=paginated_msgs,
+        queue_name=queue,
+        search_query=search_query,
+        page=page,
+        total_pages=total_pages,
+        limit=limit,
+        total_items=total_items,
+        sort_by=sort_by,
+        order=order,
+        from_date=from_date,
+        to_date=to_date,
         sidebar_tree=tree,
         active_service='queues',
-        active_item=queue,
-        from_date=from_date_str,
-        to_date=to_date_str
+        active_item=queue
     )
 
 @ui.route('/queues/<queue>/enqueue', methods=['POST'])
-def enqueue(queue):
+def enqueue_message(queue):
     if not require_auth():
-        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
         return redirect(url_for('ui.login'))
-    
-    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-    data = request.get_json(silent=True) if request.is_json else request.form
-    
-    msg = data.get('msg') or data.get('content') or ''
-    encoding = data.get('encoding', 'base64') # Default to base64 for Azure Functions compatibility
-    visibility_timeout = int(data.get('visibility_timeout') or 0)
-    time_to_live = data.get('time_to_live')
-    time_to_live = int(time_to_live) if time_to_live else None
-    
-    if not msg:
-        if is_ajax:
-            return jsonify({'success': False, 'error': 'Message content cannot be empty.'}), 400
-        flash("Message body cannot be empty.")
+    if not has_write_permission():
+        flash("Permission denied. Reader role is read-only.")
         return redirect(url_for('ui.view_queue', queue=queue))
         
+    content = request.form.get('content', '').strip()
+    ttl = int(request.form.get('ttl', 604800) or 604800)
+    visibility_timeout = int(request.form.get('visibility_timeout', 0) or 0)
+
     try:
-        payload = encode_message_payload(msg, encoding)
-        client = get_queue_service().get_queue_client(queue)
-        kwargs = {}
-        if visibility_timeout > 0:
-            kwargs['visibility_timeout'] = visibility_timeout
-        if time_to_live:
-            kwargs['time_to_live'] = time_to_live
-            
-        send_res = client.send_message(payload, **kwargs)
-        if is_ajax:
-            return jsonify({
-                'success': True, 
-                'message': 'Message enqueued successfully',
-                'message_id': getattr(send_res, 'id', None),
-                'encoding': encoding
-            })
-        flash(f"Message enqueued ({'Base64 encoded' if encoding == 'base64' else 'Plain text'})")
+        queue_client = get_queue_service().get_queue_client(queue)
+        queue_client.send_message(content, time_to_live=ttl, visibility_timeout=visibility_timeout)
+        log_activity('queue', 'ENQUEUE_MESSAGE', queue, 'SUCCESS', details=f"Size: {len(content)} chars, TTL: {ttl}s")
+        flash("Message enqueued successfully.")
     except Exception as e:
-        if is_ajax:
-            return jsonify({'success': False, 'error': str(e)}), 500
-        flash(f"Enqueue failed: {e}")
-        
+        log_activity('queue', 'ENQUEUE_MESSAGE', queue, 'FAILED', details=str(e))
+        flash(f"Error enqueuing message: {e}")
+
     return redirect(url_for('ui.view_queue', queue=queue))
 
 @ui.route('/queues/<queue>/message-content', methods=['GET'])
 def get_queue_message_content(queue):
     if not require_auth():
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-        
-    msg_id = request.args.get('msg_id')
+    msg_id = request.args.get('id')
     if not msg_id:
-        return jsonify({'success': False, 'error': 'Message ID required.'}), 400
-        
+        return jsonify({'success': False, 'error': 'Message ID is required'}), 400
     try:
-        client = get_queue_service().get_queue_client(queue)
-        # Peek messages to find matching ID
-        messages = list(client.peek_messages(max_messages=32))
-        target = next((m for m in messages if m.id == msg_id), None)
-        
-        if not target:
-            return jsonify({'success': False, 'error': 'Message not found in visible queue items.'}), 404
-            
-        decoded_text, is_b64 = decode_message_payload(target.content)
-        return jsonify({
-            'success': True,
-            'id': target.id,
-            'raw_content': target.content,
-            'decoded_content': decoded_text,
-            'is_base64': is_b64,
-            'insertion_time': format_queue_msg_time(target, 'inserted_on', 'insertion_time'),
-            'expiration_time': format_queue_msg_time(target, 'expires_on', 'expiration_time'),
-            'dequeue_count': getattr(target, 'dequeue_count', 0)
-        })
+        queue_client = get_queue_service().get_queue_client(queue)
+        messages = list(queue_client.peek_messages(max_messages=32))
+        for msg in messages:
+            if msg.id == msg_id:
+                return jsonify({
+                    'success': True,
+                    'id': msg.id,
+                    'content': msg.content,
+                    'insertion_time': msg.insertion_time.isoformat() if hasattr(msg, 'insertion_time') and msg.insertion_time else '',
+                    'expiration_time': msg.expiration_time.isoformat() if hasattr(msg, 'expiration_time') and msg.expiration_time else '',
+                    'dequeue_count': getattr(msg, 'dequeue_count', 0)
+                })
+        return jsonify({'success': False, 'error': 'Message not found'}), 404
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 @ui.route('/queues/<queue>/update-message', methods=['POST'])
 def update_queue_message(queue):
     if not require_auth():
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    if not has_write_permission():
+        return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
         
     data = request.get_json(silent=True) or request.form
-    msg_id = data.get('msg_id')
-    content = data.get('content', '')
-    encoding = data.get('encoding', 'base64')
-    
-    if not msg_id:
-        return jsonify({'success': False, 'error': 'Message ID required.'}), 400
-        
+    msg_id = data.get('id')
+    content = data.get('content')
+    if not msg_id or content is None:
+        return jsonify({'success': False, 'error': 'Message ID and Content are required'}), 400
     try:
-        client = get_queue_service().get_queue_client(queue)
-        found_map = receive_and_find_messages(client, [msg_id], max_batches=3)
-        
-        if msg_id not in found_map:
-            return jsonify({'success': False, 'error': 'Message could not be leased for update. It may be currently invisible or processed.'}), 404
+        queue_client = get_queue_service().get_queue_client(queue)
+        msgs = list(queue_client.receive_messages(messages_per_page=32, visibility_timeout=30))
+        target_msg = None
+        for m in msgs:
+            if m.id == msg_id:
+                target_msg = m
+                break
+        if not target_msg:
+            return jsonify({'success': False, 'error': 'Message could not be leased or does not exist.'}), 404
             
-        msg = found_map[msg_id]
-        payload = encode_message_payload(content, encoding)
-        client.update_message(msg.id, msg.pop_receipt, content=payload, visibility_timeout=0)
-        return jsonify({'success': True, 'message': 'Message successfully updated in queue.'})
+        queue_client.update_message(target_msg.id, target_msg.pop_receipt, content=content, visibility_timeout=0)
+        log_activity('queue', 'UPDATE_MESSAGE', queue, 'SUCCESS', details=f"Message ID: {msg_id}")
+        return jsonify({'success': True, 'message': 'Message updated successfully.'})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_activity('queue', 'UPDATE_MESSAGE', queue, 'FAILED', details=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 @ui.route('/queues/<queue>/dequeue-single', methods=['POST'])
 def dequeue_single_message(queue):
     if not require_auth():
-        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-        return redirect(url_for('ui.login'))
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    if not has_write_permission():
+        return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
         
     data = request.get_json(silent=True) or request.form
-    msg_id = data.get('msg_id')
-    is_ajax = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-    
+    msg_id = data.get('id')
     if not msg_id:
-        if is_ajax:
-            return jsonify({'success': False, 'error': 'Message ID required.'}), 400
-        flash("Message ID required.")
-        return redirect(url_for('ui.view_queue', queue=queue))
-        
+        return jsonify({'success': False, 'error': 'Message ID required'}), 400
     try:
-        client = get_queue_service().get_queue_client(queue)
-        found_map = receive_and_find_messages(client, [msg_id], max_batches=3)
-        
-        if msg_id not in found_map:
-            if is_ajax:
-                return jsonify({'success': False, 'error': 'Message not found or already processed.'}), 404
-            flash("Message not found or already processed.")
-            return redirect(url_for('ui.view_queue', queue=queue))
-            
-        msg = found_map[msg_id]
-        client.delete_message(msg.id, msg.pop_receipt)
-        
-        if is_ajax:
-            return jsonify({'success': True, 'message': f'Message {msg_id} dequeued and permanently deleted.'})
-        flash("Dequeued one message")
+        queue_client = get_queue_service().get_queue_client(queue)
+        msgs = list(queue_client.receive_messages(messages_per_page=32, visibility_timeout=30))
+        target_msg = None
+        for m in msgs:
+            if m.id == msg_id:
+                target_msg = m
+                break
+        if not target_msg:
+            return jsonify({'success': False, 'error': 'Message could not be leased for deletion.'}), 404
+        queue_client.delete_message(target_msg.id, target_msg.pop_receipt)
+        log_activity('queue', 'DEQUEUE_SINGLE', queue, 'SUCCESS', details=f"Message ID: {msg_id}")
+        return jsonify({'success': True, 'message': 'Message dequeued and deleted successfully.'})
     except Exception as e:
-        if is_ajax:
-            return jsonify({'success': False, 'error': str(e)}), 500
-        flash(f"Dequeue failed: {e}")
-        
-    return redirect(url_for('ui.view_queue', queue=queue))
+        log_activity('queue', 'DEQUEUE_SINGLE', queue, 'FAILED', details=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 @ui.route('/queues/<queue>/dequeue-multiple', methods=['POST'])
 def dequeue_multiple_messages(queue):
     if not require_auth():
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    if not has_write_permission():
+        return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
         
-    data = request.get_json(silent=True) or {}
-    msg_ids = data.get('msg_ids', [])
-    
+    data = request.get_json(silent=True) or request.form
+    msg_ids = data.get('ids', [])
     if not msg_ids:
-        return jsonify({'success': False, 'error': 'No message IDs provided.'}), 400
-        
+        return jsonify({'success': False, 'error': 'No message IDs specified'}), 400
     try:
-        client = get_queue_service().get_queue_client(queue)
-        found_map = receive_and_find_messages(client, msg_ids, max_batches=4)
-        
+        queue_client = get_queue_service().get_queue_client(queue)
+        msgs = list(queue_client.receive_messages(messages_per_page=32, visibility_timeout=30))
         deleted_count = 0
-        for mid, msg in found_map.items():
-            try:
-                client.delete_message(msg.id, msg.pop_receipt)
+        for m in msgs:
+            if m.id in msg_ids:
+                queue_client.delete_message(m.id, m.pop_receipt)
                 deleted_count += 1
-            except Exception:
-                pass
-                
-        return jsonify({
-            'success': True, 
-            'deleted_count': deleted_count, 
-            'requested_count': len(msg_ids),
-            'message': f"Successfully dequeued {deleted_count} message(s)."
-        })
+        log_activity('queue', 'DEQUEUE_MULTIPLE', queue, 'SUCCESS', details=f"Dequeued {deleted_count} messages")
+        return jsonify({'success': True, 'deleted_count': deleted_count, 'message': f"Dequeued {deleted_count} messages successfully."})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_activity('queue', 'DEQUEUE_MULTIPLE', queue, 'FAILED', details=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 @ui.route('/queues/<queue>/send-to-queue', methods=['POST'])
-def send_to_another_queue(queue):
+def send_to_queue(queue):
     if not require_auth():
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    if not has_write_permission():
+        return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
         
-    data = request.get_json(silent=True) or {}
-    msg_ids = data.get('msg_ids', [])
-    dest_queue = data.get('destination_queue', '').strip()
-    action_type = data.get('action_type', 'move') # 'move' or 'copy'
-    encoding = data.get('encoding', 'preserve') # 'preserve', 'base64', 'plain'
-    custom_content = data.get('custom_content')
-    
-    if not msg_ids:
-        return jsonify({'success': False, 'error': 'No messages selected to send.'}), 400
-    if not dest_queue:
-        return jsonify({'success': False, 'error': 'Destination queue name required.'}), 400
-        
-    svc = get_queue_service()
+    data = request.get_json(silent=True) or request.form
+    msg_id = data.get('id')
+    dest_queue = data.get('dest_queue')
+    action_type = data.get('action_type', 'copy') # 'move' or 'copy'
+    if not msg_id or not dest_queue:
+        return jsonify({'success': False, 'error': 'Message ID and Destination Queue are required'}), 400
     try:
-        source_client = svc.get_queue_client(queue)
+        svc = get_queue_service()
+        src_client = svc.get_queue_client(queue)
         dest_client = svc.get_queue_client(dest_queue)
         
-        # Verify destination queue exists or create if requested
-        try:
-            dest_client.get_queue_properties()
-        except ResourceNotFoundError:
-            return jsonify({'success': False, 'error': f"Destination queue '{dest_queue}' does not exist."}), 404
+        msgs = list(src_client.receive_messages(messages_per_page=32, visibility_timeout=30))
+        target_msg = None
+        for m in msgs:
+            if m.id == msg_id:
+                target_msg = m
+                break
+        if not target_msg:
+            return jsonify({'success': False, 'error': 'Message could not be leased or found.'}), 404
             
-        found_map = receive_and_find_messages(source_client, msg_ids, max_batches=4)
-        transferred_count = 0
-        
-        for mid, msg in found_map.items():
-            # Determine payload to send
-            if custom_content is not None and len(msg_ids) == 1:
-                send_payload = encode_message_payload(custom_content, encoding if encoding != 'preserve' else 'base64')
-            elif encoding == 'preserve':
-                send_payload = msg.content
-            elif encoding == 'base64':
-                decoded, _ = decode_message_payload(msg.content)
-                send_payload = encode_message_payload(decoded, 'base64')
-            elif encoding == 'plain':
-                decoded, _ = decode_message_payload(msg.content)
-                send_payload = encode_message_payload(decoded, 'plain')
-            else:
-                send_payload = msg.content
-                
-            # Send to destination queue
-            dest_client.send_message(send_payload)
-            transferred_count += 1
+        dest_client.send_message(target_msg.content)
+        if action_type == 'move':
+            src_client.delete_message(target_msg.id, target_msg.pop_receipt)
             
-            # If move, delete from source queue; if copy, reset visibility to 0
-            if action_type == 'move':
-                source_client.delete_message(msg.id, msg.pop_receipt)
-            else:
-                try:
-                    source_client.update_message(msg.id, msg.pop_receipt, visibility_timeout=0)
-                except Exception:
-                    pass
-                    
-        return jsonify({
-            'success': True,
-            'transferred_count': transferred_count,
-            'action_type': action_type,
-            'destination_queue': dest_queue,
-            'message': f"Successfully {'moved' if action_type == 'move' else 'copied'} {transferred_count} message(s) to queue '{dest_queue}'."
-        })
+        log_activity('queue', f"SEND_TO_QUEUE_{action_type.upper()}", f"{queue} -> {dest_queue}", 'SUCCESS', details=f"Message ID: {msg_id}")
+        return jsonify({'success': True, 'message': f"Message {'moved' if action_type == 'move' else 'copied'} to queue '{dest_queue}'."})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        log_activity('queue', f"SEND_TO_QUEUE_{action_type.upper()}", f"{queue} -> {dest_queue}", 'FAILED', details=str(e))
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 @ui.route('/queues/<queue>/dequeue', methods=['POST'])
-def dequeue(queue):
+def dequeue_message(queue):
     if not require_auth():
         return redirect(url_for('ui.login'))
+    if not has_write_permission():
+        flash("Permission denied. Reader role is read-only.")
+        return redirect(url_for('ui.view_queue', queue=queue))
+        
     try:
-        q = get_queue_service().get_queue_client(queue)
-        msgs = q.receive_messages(messages_per_page=1)
-        for msg in msgs:
-            q.delete_message(msg.id, msg.pop_receipt)
-            flash("Dequeued one message")
-            break
+        queue_client = get_queue_service().get_queue_client(queue)
+        messages = queue_client.receive_messages(messages_per_page=1, visibility_timeout=30)
+        count = 0
+        for msg in messages:
+            queue_client.delete_message(msg)
+            count += 1
+        log_activity('queue', 'DEQUEUE_MESSAGE', queue, 'SUCCESS')
+        flash(f"Dequeued {count} message.")
     except Exception as e:
-        flash(f"Dequeue failed: {e}")
+        log_activity('queue', 'DEQUEUE_MESSAGE', queue, 'FAILED', details=str(e))
+        flash(f"Error dequeuing: {e}")
     return redirect(url_for('ui.view_queue', queue=queue))
 
 @ui.route('/queues/<queue>/dequeue-all', methods=['POST'])
-def dequeue_all(queue):
+def dequeue_all_messages(queue):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    q = get_queue_service().get_queue_client(queue)
-    deleted = 0
+    if not has_write_permission():
+        flash("Permission denied. Reader role is read-only.")
+        return redirect(url_for('ui.view_queue', queue=queue))
+
     try:
-        while True:
-            msgs = list(q.receive_messages(messages_per_page=32))
-            if not msgs:
-                break
-            for msg in msgs:
-                q.delete_message(msg.id, msg.pop_receipt)
-                deleted += 1
-        flash(f"Dequeued {deleted} messages")
+        queue_client = get_queue_service().get_queue_client(queue)
+        queue_client.clear_messages()
+        log_activity('queue', 'DEQUEUE_ALL', queue, 'SUCCESS')
+        flash(f"Cleared all messages from queue '{queue}'.")
     except Exception as e:
-        flash(f"Dequeue all failed: {e}")
+        log_activity('queue', 'DEQUEUE_ALL', queue, 'FAILED', details=str(e))
+        flash(f"Error clearing queue: {e}")
     return redirect(url_for('ui.view_queue', queue=queue))
 
 # -----------------------
-# Table Routes
+# Tables Routes
 # -----------------------
 @ui.route('/tables')
-def tables():
+def list_tables():
     if not require_auth():
         return redirect(url_for('ui.login'))
-    
+
     try:
-        svc = get_table_service()
-        tables = list(svc.list_tables())
+        table_svc = get_table_service()
+        raw_tables = list(table_svc.list_tables())
+        table_list = [t.name if hasattr(t, "name") else str(t) for t in raw_tables]
+        # Privacy: Filter out USER_TABLE and LOGS_TABLE for non-admins
+        if not is_admin():
+            table_list = [t for t in table_list if t.lower() not in [USER_TABLE.lower(), LOGS_TABLE.lower()]]
     except Exception as e:
         flash(f"Error loading tables: {e}")
-        tables = []
+        table_list = []
 
-    table_names = [t.name if hasattr(t, "name") else str(t) for t in tables]
-    
     tree = load_sidebar_tree()
-    return render_template('tables.html', table_names=table_names, table_name=None, sidebar_tree=tree, active_service='tables', active_item=None)
+    return render_template('tables.html', tables=table_list, table_name=None, sidebar_tree=tree, active_service='tables', active_item=None)
 
 @ui.route('/tables/create', methods=['POST'])
 def create_table():
     if not require_auth():
         return redirect(url_for('ui.login'))
-    name = request.form.get('name')
+    if not is_admin():
+        flash("Permission denied. Administrator role required to create tables.")
+        return redirect(url_for('ui.list_tables'))
+        
+    name = request.form.get('name') or request.form.get('table_name')
     try:
         get_table_service().create_table(name)
-        flash(f"Table '{name}' created")
+        log_activity('table', 'CREATE_TABLE', name, 'SUCCESS')
+        flash(f"Table '{name}' created.")
     except Exception as e:
-        flash(f"Create failed: {e}")
-    return redirect(url_for('ui.tables'))
+        log_activity('table', 'CREATE_TABLE', name, 'FAILED', details=str(e))
+        flash(f"Error creating table: {e}")
+    return redirect(url_for('ui.list_tables'))
 
 @ui.route('/tables/delete', methods=['POST'])
 def delete_table():
     if not require_auth():
         return redirect(url_for('ui.login'))
-    name = request.form.get('name')
+    if not is_admin():
+        flash("Permission denied. Administrator role required to delete tables.")
+        return redirect(url_for('ui.list_tables'))
+        
+    name = request.form.get('table_name')
+    if name.lower() in [USER_TABLE.lower(), LOGS_TABLE.lower()]:
+        flash("System tables cannot be deleted.")
+        return redirect(url_for('ui.list_tables'))
+        
     try:
         get_table_service().delete_table(name)
-        flash(f"Table '{name}' deleted")
+        log_activity('table', 'DELETE_TABLE', name, 'SUCCESS')
+        flash(f"Table '{name}' deleted.")
     except Exception as e:
-        flash(f"Delete failed: {e}")
-    return redirect(url_for('ui.tables'))
+        log_activity('table', 'DELETE_TABLE', name, 'FAILED', details=str(e))
+        flash(f"Error deleting table: {e}")
+    return redirect(url_for('ui.list_tables'))
 
 @ui.route('/tables/<table_name>')
 def view_table(table_name):
     if not require_auth():
         return redirect(url_for('ui.login'))
 
-    from_date_str = request.args.get('from_date', '').strip()
-    to_date_str = request.args.get('to_date', '').strip()
+    # Security & Privacy: Restrict system tables to Admin only
+    if table_name.lower() in [USER_TABLE.lower(), LOGS_TABLE.lower()] and not is_admin():
+        flash("Access to system tables is restricted to administrators.")
+        return redirect(url_for('ui.list_tables'))
+
+    filter_expr = request.args.get('filter', '').strip()
+    search_query = request.args.get('q', '').strip()
+    from_date = request.args.get('from_date', '').strip()
+    to_date = request.args.get('to_date', '').strip()
 
     from_dt = None
     to_dt = None
-    if from_date_str:
+    if from_date:
         try:
-            from_dt = datetime.strptime(from_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            from_dt = datetime.strptime(from_date, "%Y-%m-%d").date()
         except Exception:
-            from_dt = None
-    if to_date_str:
+            pass
+    if to_date:
         try:
-            to_dt = datetime.strptime(to_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc)
+            to_dt = datetime.strptime(to_date, "%Y-%m-%d").date()
         except Exception:
-            to_dt = None
+            pass
 
-    client = get_table_service().get_table_client(table_name)
     try:
-        entities_iter = client.query_entities(query_filter="")
-        entities = []
-        for i, ent in enumerate(entities_iter):
-            if i >= 100:
-                break
-            entities.append(ent)
-    except Exception as e:
-        flash(f"Error reading table: {e}")
-        return redirect(url_for('ui.tables'))
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+    try:
+        limit = int(request.args.get('limit', 20))
+        if limit not in [10, 15, 20, 50, 100]:
+            limit = 20
+    except ValueError:
+        limit = 20
 
-    if from_dt or to_dt:
-        filtered_entities = []
-        for ent in entities:
-            ts = ent.get('Timestamp')
-            if ts and isinstance(ts, datetime):
-                if getattr(ts, 'tzinfo', None) is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                if from_dt and ts < from_dt:
-                    continue
-                if to_dt and ts > to_dt:
-                    continue
-            filtered_entities.append(ent)
-        entities = filtered_entities
+    sort_by = request.args.get('sort', 'PartitionKey').strip()
+    order = request.args.get('order', 'asc').strip().lower()
+
+    table_client = get_table_service().get_table_client(table_name)
+
+    try:
+        if filter_expr:
+            entities = list(table_client.query_entities(filter_expr))
+        else:
+            entities = list(table_client.list_entities())
+    except Exception as e:
+        flash(f"Error querying table: {e}")
+        entities = []
+
+    # Dynamic Column Discovery
+    all_keys = set()
+    dict_entities = []
+    for e in entities:
+        d = dict(e)
+        # Omit internal OData metadata
+        d.pop('odata.etag', None)
+        d.pop('etag', None)
+        all_keys.update(d.keys())
+        dict_entities.append(d)
+
+    # Place PartitionKey and RowKey and Timestamp at front
+    cols = []
+    if 'PartitionKey' in all_keys:
+        cols.append('PartitionKey')
+    if 'RowKey' in all_keys:
+        cols.append('RowKey')
+    if 'Timestamp' in all_keys:
+        cols.append('Timestamp')
+    for k in sorted(all_keys):
+        if k not in cols:
+            cols.append(k)
+
+    # In-memory search filter & date filter
+    filtered_entities = []
+    for d in dict_entities:
+        if search_query:
+            match = False
+            for v in d.values():
+                if search_query.lower() in str(v).lower():
+                    match = True
+                    break
+            if not match:
+                continue
+        if from_dt or to_dt:
+            ts = d.get('Timestamp')
+            if ts:
+                try:
+                    if hasattr(ts, 'date'):
+                        t_date = ts.date()
+                    else:
+                        t_date = datetime.fromisoformat(str(ts).replace('Z', '+00:00')).date()
+                    if from_dt and t_date < from_dt:
+                        continue
+                    if to_dt and t_date > to_dt:
+                        continue
+                except Exception:
+                    pass
+        filtered_entities.append(d)
+
+    # Sorting
+    def sort_key(d):
+        val = d.get(sort_by, '')
+        if val is None:
+            return ''
+        return str(val).lower()
+
+    reverse = (order == 'desc')
+    filtered_entities.sort(key=sort_key, reverse=reverse)
+
+    total_items = len(filtered_entities)
+    total_pages = max(1, math.ceil(total_items / limit))
+    if page > total_pages:
+        page = total_pages
+
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    paginated_entities = filtered_entities[start_idx:end_idx]
 
     tree = load_sidebar_tree()
-    try:
-        all_tables = [t.name if hasattr(t, "name") else str(t) for t in get_table_service().list_tables()]
-    except Exception:
-        all_tables = [table_name]
     return render_template(
         'tables.html',
-        entities=entities,
+        entities=paginated_entities,
+        columns=cols,
         table_name=table_name,
-        all_tables=all_tables,
+        filter_expr=filter_expr,
+        search_query=search_query,
+        page=page,
+        total_pages=total_pages,
+        limit=limit,
+        total_items=total_items,
+        sort_by=sort_by,
+        order=order,
+        from_date=from_date,
+        to_date=to_date,
         sidebar_tree=tree,
         active_service='tables',
-        active_item=table_name,
-        from_date=from_date_str,
-        to_date=to_date_str
+        active_item=table_name
     )
 
 @ui.route('/tables/<table_name>/add', methods=['POST'])
 def add_entity(table_name):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    pk = request.form.get('partition_key')
-    rk = request.form.get('row_key')
-    pkp = request.form.get('prop_k')
-    pvp = request.form.get('prop_v')
+    if not has_write_permission():
+        flash("Permission denied. Reader role is read-only.")
+        return redirect(url_for('ui.view_table', table_name=table_name))
+    if table_name.lower() in [USER_TABLE.lower(), LOGS_TABLE.lower()] and not is_admin():
+        flash("Access to system tables is restricted to administrators.")
+        return redirect(url_for('ui.list_tables'))
 
-    ent = {"PartitionKey": pk, "RowKey": rk}
-    if pkp:
-        ent[pkp] = pvp
-
+    pk = request.form.get('pk')
+    rk = request.form.get('rk')
+    json_data = request.form.get('entity_json', '{}')
     try:
-        get_table_service().get_table_client(table_name).create_entity(ent)
-        flash("Entity inserted successfully")
+        custom_props = json.loads(json_data)
+        entity = {'PartitionKey': pk, 'RowKey': rk}
+        entity.update(custom_props)
+        get_table_service().get_table_client(table_name).create_entity(entity)
+        log_activity('table', 'INSERT_ENTITY', f"{table_name} (PK={pk}, RK={rk})", 'SUCCESS')
+        flash("Entity added.")
     except Exception as e:
-        flash(f"Insert failed: {e}")
+        log_activity('table', 'INSERT_ENTITY', f"{table_name} (PK={pk}, RK={rk})", 'FAILED', details=str(e))
+        flash(f"Error adding entity: {e}")
     return redirect(url_for('ui.view_table', table_name=table_name))
 
 @ui.route('/tables/<table_name>/entity-content', methods=['GET'])
 def get_table_entity_content(table_name):
     if not require_auth():
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    if table_name.lower() in [USER_TABLE.lower(), LOGS_TABLE.lower()] and not is_admin():
+        return jsonify({'success': False, 'error': 'Access to system tables is restricted to administrators.'}), 403
+
     pk = request.args.get('pk')
     rk = request.args.get('rk')
     if not pk or not rk:
         return jsonify({'success': False, 'error': 'PartitionKey and RowKey are required.'}), 400
+        
     try:
         client = get_table_service().get_table_client(table_name)
         entity = client.get_entity(partition_key=pk, row_key=rk)
-        clean_entity = {}
-        for k, v in entity.items():
-            if isinstance(v, datetime):
-                clean_entity[k] = v.isoformat()
-            else:
-                clean_entity[k] = v
-        return jsonify({'success': True, 'entity': clean_entity})
+        dict_entity = {k: v for k, v in entity.items() if k not in ['odata.etag', 'etag']}
+        if 'Timestamp' in dict_entity and hasattr(dict_entity['Timestamp'], 'isoformat'):
+            dict_entity['Timestamp'] = dict_entity['Timestamp'].isoformat()
+        return jsonify({'success': True, 'entity': dict_entity})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
@@ -1827,32 +2725,46 @@ def get_table_entity_content(table_name):
 def update_table_entity(table_name):
     if not require_auth():
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    if not has_write_permission():
+        return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
+    if table_name.lower() in [USER_TABLE.lower(), LOGS_TABLE.lower()] and not is_admin():
+        return jsonify({'success': False, 'error': 'Access to system tables is restricted to administrators.'}), 403
+
     data = request.get_json(silent=True) or request.form
-    pk = data.get('pk') or data.get('PartitionKey')
-    rk = data.get('rk') or data.get('RowKey')
-    entity_data = data.get('entity') or {}
-    
-    if not pk or not rk:
-        return jsonify({'success': False, 'error': 'PartitionKey and RowKey are required.'}), 400
-    
+    pk = data.get('pk')
+    rk = data.get('rk')
+    entity_data = data.get('entity')
+
+    if not pk or not rk or entity_data is None:
+        return jsonify({'success': False, 'error': 'PartitionKey, RowKey and entity data are required.'}), 400
+        
     try:
-        client = get_table_service().get_table_client(table_name)
         if isinstance(entity_data, str):
             entity_data = json.loads(entity_data)
+            
+        entity_data['PartitionKey'] = pk
+        entity_data['RowKey'] = rk
+        entity_data.pop('Timestamp', None)
+        entity_data.pop('odata.etag', None)
+        entity_data.pop('etag', None)
         
-        new_entity = {k: v for k, v in entity_data.items() if k not in ['odata.etag', 'etag', 'Timestamp']}
-        new_entity['PartitionKey'] = pk
-        new_entity['RowKey'] = rk
-        
-        client.upsert_entity(entity=new_entity, mode=UpdateMode.REPLACE)
+        client = get_table_service().get_table_client(table_name)
+        client.upsert_entity(entity=entity_data, mode=UpdateMode.REPLACE)
+        log_activity('table', 'UPDATE_ENTITY', f"{table_name} (PK={pk}, RK={rk})", 'SUCCESS')
         return jsonify({'success': True, 'message': 'Entity updated successfully.'})
     except Exception as e:
+        log_activity('table', 'UPDATE_ENTITY', f"{table_name} (PK={pk}, RK={rk})", 'FAILED', details=str(e))
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @ui.route('/tables/<table_name>/clone-entity', methods=['POST'])
 def clone_table_entity(table_name):
     if not require_auth():
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    if not has_write_permission():
+        return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
+    if table_name.lower() in [USER_TABLE.lower(), LOGS_TABLE.lower()] and not is_admin():
+        return jsonify({'success': False, 'error': 'Access to system tables is restricted to administrators.'}), 403
+
     data = request.get_json(silent=True) or request.form
     src_pk = data.get('source_pk')
     src_rk = data.get('source_rk')
@@ -1870,19 +2782,26 @@ def clone_table_entity(table_name):
         new_ent['RowKey'] = new_rk
         
         client.create_entity(new_ent)
+        log_activity('table', 'CLONE_ENTITY', f"{table_name} (PK={src_pk}, RK={src_rk}) -> (PK={new_pk}, RK={new_rk})", 'SUCCESS')
         return jsonify({'success': True, 'message': f"Cloned entity to PartitionKey='{new_pk}', RowKey='{new_rk}'."})
     except Exception as e:
+        log_activity('table', 'CLONE_ENTITY', f"{table_name} (PK={src_pk}, RK={src_rk}) -> (PK={new_pk}, RK={new_rk})", 'FAILED', details=str(e))
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @ui.route('/tables/<table_name>/copy-entity', methods=['POST'])
 def copy_table_entity(table_name):
     if not require_auth():
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    if not has_write_permission():
+        return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
+    if table_name.lower() in [USER_TABLE.lower(), LOGS_TABLE.lower()] and not is_admin():
+        return jsonify({'success': False, 'error': 'Access to system tables is restricted to administrators.'}), 403
+
     data = request.get_json(silent=True) or request.form
     pk = data.get('pk')
     rk = data.get('rk')
     dest_table = data.get('dest_table')
-    action_type = data.get('action_type', 'copy') # 'move' or 'copy'
+    action_type = data.get('action_type', 'copy')
     
     if not pk or not rk or not dest_table:
         return jsonify({'success': False, 'error': 'PartitionKey, RowKey and destination table name are required.'}), 400
@@ -1901,20 +2820,31 @@ def copy_table_entity(table_name):
         if action_type == 'move':
             src_client.delete_entity(partition_key=pk, row_key=rk)
             
+        log_activity('table', f"{action_type.upper()}_ENTITY", f"{table_name} -> {dest_table} (PK={pk}, RK={rk})", 'SUCCESS')
         return jsonify({'success': True, 'message': f"Entity successfully {'moved' if action_type == 'move' else 'copied'} to table '{dest_table}'."})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        log_activity('table', f"{action_type.upper()}_ENTITY", f"{table_name} -> {dest_table} (PK={pk}, RK={rk})", 'FAILED', details=str(e))
+        return jsonify({"success": False, "error": str(e)}), 400
 
 @ui.route('/tables/<table_name>/delete', methods=['POST'])
 def delete_entity(table_name):
     if not require_auth():
         return redirect(url_for('ui.login'))
+    if not has_write_permission():
+        flash("Permission denied. Reader role is read-only.")
+        return redirect(url_for('ui.view_table', table_name=table_name))
+    if table_name.lower() in [USER_TABLE.lower(), LOGS_TABLE.lower()] and not is_admin():
+        flash("Access to system tables is restricted to administrators.")
+        return redirect(url_for('ui.list_tables'))
+
     pk = request.form.get('pk')
     rk = request.form.get('rk')
     try:
         get_table_service().get_table_client(table_name).delete_entity(pk, rk)
-        flash("Entity deleted")
+        log_activity('table', 'DELETE_ENTITY', f"{table_name} (PK={pk}, RK={rk})", 'SUCCESS')
+        flash("Entity deleted.")
     except Exception as e:
+        log_activity('table', 'DELETE_ENTITY', f"{table_name} (PK={pk}, RK={rk})", 'FAILED', details=str(e))
         flash(f"Delete failed: {e}")
     return redirect(url_for('ui.view_table', table_name=table_name))
 

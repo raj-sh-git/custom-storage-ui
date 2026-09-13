@@ -15,14 +15,14 @@
     <!-- FontAwesome for Premium Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body class="{% if not session.get('account_name') %}auth-layout{% else %}dashboard-layout{% endif %}">
+<body class="{% if not session.get('account_name') or not session.get('user') %}auth-layout{% else %}dashboard-layout{% endif %}">
     <script>
         if (localStorage.getItem("theme") === "light") {
             document.body.classList.add("light-theme");
         }
     </script>
     
-    {% if session.get('account_name') %}
+    {% if session.get('account_name') and session.get('user') %}
     <!-- Sidebar Navigation -->
     <aside class="app-sidebar">
         <div class="sidebar-header">
@@ -34,89 +34,6 @@
                 <div class="badge badge-premium version-badge" tabindex="0">
                     <span>v2.2</span>
                     <i class="fa-solid fa-sparkles" style="margin-left: 3px; font-size: 8.5px; opacity: 0.85;"></i>
-                </div>
-                <div class="version-popover glass-card">
-                    <div class="version-popover-header">
-                        <div class="version-title-wrap">
-                            <span class="version-title">Storage UI v2.2</span>
-                            <span class="version-date">Changelog</span>
-                        </div>
-                        <span class="badge badge-blue">Latest</span>
-                    </div>
-                    <ul class="version-changelog-list">
-                        <li>
-                            <i class="fa-solid fa-ellipsis-vertical" style="color: #38bdf8;"></i>
-                            <div class="changelog-content">
-                                <strong>3-Dot (⋮) Action Menus:</strong> Quick CRUD actions across Blobs, File Shares, Queues, and Tables (Edit, Rename, Move/Copy, Clone, Delete).
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-arrows-up-down-left-right" style="color: #a855f7;"></i>
-                            <div class="changelog-content">
-                                <strong>Cross-Container & Share Transfers:</strong> Seamlessly move or copy files and entities across containers, shares, and tables.
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-table" style="color: #f59e0b;"></i>
-                            <div class="changelog-content">
-                                <strong>Table Entity Studio:</strong> In-browser JSON entity editor, duplication / cloning, and cross-table entity migration.
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-list-ol" style="color: #10b981;"></i>
-                            <div class="changelog-content">
-                                <strong>Single-Line Queue Preview:</strong> Clean single-line truncated message preview with non-shifting toggle to full payload.
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-check-double" style="color: #10b981;"></i>
-                            <div class="changelog-content">
-                                <strong>Multi-Select Bulk Deletion:</strong> Select multiple blobs via checkboxes and delete in a single batch.
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-pen-to-square" style="color: #00a2ed;"></i>
-                            <div class="changelog-content">
-                                <strong>In-Browser Blob Editor:</strong> View, edit, and save text, JSON, and code files directly to Azure Storage.
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-magnifying-glass" style="color: #f59e0b;"></i>
-                            <div class="changelog-content">
-                                <strong>Instant Search Filter:</strong> Real-time instant filtering across blob names and paths.
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-list-ol" style="color: #10b981;"></i>
-                            <div class="changelog-content">
-                                <strong>Configurable Pagination:</strong> Choose 10, 15, 20, 50, or 100 items per page with fast slicing.
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-cloud-arrow-up" style="color: #0078d4;"></i>
-                            <div class="changelog-content">
-                                <strong>Upload Progress & Timeout Protection:</strong> Live progress tracking with 502/504 gateway timeout handlers.
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-list-check" style="color: #38bdf8;"></i>
-                            <div class="changelog-content">
-                                <strong>Queue Multi-Select & Routing:</strong> Select, bulk dequeue, edit messages in-place, and move/copy messages across queues.
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-shield-halved" style="color: #10b981;"></i>
-                            <div class="changelog-content">
-                                <strong>Base64 & Plain Enqueue:</strong> Native Base64 encoding to prevent Azure Function poison queues, with smart auto-decoding.
-                            </div>
-                        </li>
-                        <li>
-                            <i class="fa-solid fa-cubes-stacked" style="color: #803fe7;"></i>
-                            <div class="changelog-content">
-                                <strong>Bulk Resource Studio:</strong> Batch-create containers, queues, tables, and shares via CSV/Excel.
-                            </div>
-                        </li>
-                    </ul>
                 </div>
             </div>
         </div>
@@ -133,15 +50,33 @@
                 </div>
             </div>
 
+            <!-- Portal Management (Admin Only) -->
+            {% if session.get('user', {}).get('role') == 'admin' %}
+            <div class="menu-label" style="margin-top: 14px;">Portal Management</div>
+            <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px;">
+                <a href="{{ url_for('ui.users_list') }}" class="portal-nav-item {% if active_service == 'users' %}active{% endif %}">
+                    <i class="fa-solid fa-users-gear" style="color: var(--accent-blue);"></i>
+                    <span>User Management</span>
+                </a>
+                <a href="{{ url_for('ui.activity_logs') }}" class="portal-nav-item {% if active_service == 'activity_logs' %}active{% endif %}">
+                    <i class="fa-solid fa-clipboard-list" style="color: var(--success);"></i>
+                    <span>Activity Logs</span>
+                </a>
+            </div>
+            {% endif %}
+
+            <div class="menu-label">Storage Services</div>
             <div class="database-tree">
                 <!-- 1. Blob Containers Node -->
                 <div class="db-node {% if active_service == 'blobs' %}expanded{% endif %}">
                     <div class="db-title" onclick="toggleDbNode(this)">
                         <i class="fa-solid fa-database db-icon"></i>
                         <span class="db-name" style="flex-grow: 1;">Blob Containers</span>
-                        <a href="javascript:void(0)" onclick="openCreateModal('container')" title="Create Container" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
+                        {% if session.get('user', {}).get('role') == 'admin' %}
+                        <a href="javascript:void(0)" onclick="openCreateModal('container'); event.stopPropagation();" title="Create Container" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
                             <i class="fa-solid fa-circle-plus"></i>
                         </a>
+                        {% endif %}
                         <i class="fa-solid fa-chevron-right chevron-icon"></i>
                     </div>
                     <div class="containers-list">
@@ -163,9 +98,11 @@
                     <div class="db-title" onclick="toggleDbNode(this)">
                         <i class="fa-solid fa-hard-drive db-icon"></i>
                         <span class="db-name" style="flex-grow: 1;">File Shares</span>
-                        <a href="javascript:void(0)" onclick="openCreateModal('share')" title="Create File Share" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
+                        {% if session.get('user', {}).get('role') == 'admin' %}
+                        <a href="javascript:void(0)" onclick="openCreateModal('share'); event.stopPropagation();" title="Create File Share" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
                             <i class="fa-solid fa-circle-plus"></i>
                         </a>
+                        {% endif %}
                         <i class="fa-solid fa-chevron-right chevron-icon"></i>
                     </div>
                     <div class="containers-list">
@@ -187,9 +124,11 @@
                     <div class="db-title" onclick="toggleDbNode(this)">
                         <i class="fa-solid fa-list-ol db-icon"></i>
                         <span class="db-name" style="flex-grow: 1;">Queues</span>
-                        <a href="javascript:void(0)" onclick="openCreateModal('queue')" title="Create Queue" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
+                        {% if session.get('user', {}).get('role') == 'admin' %}
+                        <a href="javascript:void(0)" onclick="openCreateModal('queue'); event.stopPropagation();" title="Create Queue" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
                             <i class="fa-solid fa-circle-plus"></i>
                         </a>
+                        {% endif %}
                         <i class="fa-solid fa-chevron-right chevron-icon"></i>
                     </div>
                     <div class="containers-list">
@@ -211,9 +150,11 @@
                     <div class="db-title" onclick="toggleDbNode(this)">
                         <i class="fa-solid fa-table db-icon"></i>
                         <span class="db-name" style="flex-grow: 1;">Tables</span>
-                        <a href="javascript:void(0)" onclick="openCreateModal('table')" title="Create Table" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
+                        {% if session.get('user', {}).get('role') == 'admin' %}
+                        <a href="javascript:void(0)" onclick="openCreateModal('table'); event.stopPropagation();" title="Create Table" style="margin-right: 8px; color: var(--text-muted); font-size: 13px;">
                             <i class="fa-solid fa-circle-plus"></i>
                         </a>
+                        {% endif %}
                         <i class="fa-solid fa-chevron-right chevron-icon"></i>
                     </div>
                     <div class="containers-list">
@@ -235,7 +176,7 @@
         <div class="sidebar-footer">
             <a href="{{ url_for('ui.logout') }}" class="btn-logout">
                 <i class="fa-solid fa-arrow-right-from-bracket"></i>
-                <span>Disconnect</span>
+                <span>Sign Out</span>
             </a>
         </div>
     </aside>
@@ -243,13 +184,17 @@
 
     <!-- Main Content Area -->
     <main class="main-wrapper">
-        {% if session.get('account_name') %}
+        {% if session.get('account_name') and session.get('user') %}
         <header class="app-header">
             <div class="breadcrumb">
                 <a href="{{ url_for('ui.home') }}">Home</a>
                 {% if active_service %}
                     <span class="separator">/</span>
-                    <span class="active-crumb">{{ active_service|capitalize }}</span>
+                    <span class="active-crumb">
+                        {% if active_service == 'users' %}User Management
+                        {% elif active_service == 'activity_logs' %}Activity Logs
+                        {% else %}{{ active_service|capitalize }}{% endif %}
+                    </span>
                 {% endif %}
                 {% if active_item %}
                     <span class="separator">/</span>
@@ -257,18 +202,61 @@
                 {% endif %}
             </div>
             
-            <div class="user-profile">
-                <button id="themeToggle" class="btn-theme-toggle" onclick="toggleTheme()" title="Toggle Theme">
-                    <i class="fa-solid fa-moon"></i>
-                </button>
-                <div class="avatar">
-                    <i class="fa-regular fa-user"></i>
+            {% if session.get('user') %}
+            <div class="user-profile-wrapper" style="position: relative;">
+                <div class="user-profile" onclick="toggleUserProfileDropdown(event)">
+                    <button id="themeToggle" class="btn-theme-toggle" onclick="toggleTheme(); event.stopPropagation();" title="Toggle Theme">
+                        <i class="fa-solid fa-moon"></i>
+                    </button>
+                    <div class="avatar" style="background: {% if session.get('user', {}).get('role') == 'admin' %}rgba(245, 158, 11, 0.2){% elif session.get('user', {}).get('role') == 'contributor' %}rgba(16, 185, 129, 0.2){% else %}rgba(168, 85, 247, 0.2){% endif %}; color: {% if session.get('user', {}).get('role') == 'admin' %}var(--warning){% elif session.get('user', {}).get('role') == 'contributor' %}var(--success){% else %}var(--accent-purple){% endif %}; font-weight: 700;">
+                        {{ session.get('user', {}).get('username', '')[:1]|upper }}
+                    </div>
+                    <div class="profile-info">
+                        <span class="username">{{ session.get('user', {}).get('display_name') or session.get('user', {}).get('username') }}</span>
+                        <span class="role">
+                            {% if session.get('user', {}).get('role') == 'admin' %}Admin Portal
+                            {% elif session.get('user', {}).get('role') == 'contributor' %}Contributor
+                            {% else %}Viewer (Reader){% endif %}
+                        </span>
+                    </div>
+                    <i class="fa-solid fa-chevron-down" style="font-size: 10px; color: var(--text-muted); margin-left: 4px;"></i>
                 </div>
-                <div class="profile-info">
-                    <span class="username">Developer Mode</span>
-                    <span class="role">Admin Portal</span>
+
+                <!-- User Profile Dropdown Menu -->
+                <div id="userProfileDropdown" class="user-profile-dropdown" style="display: none;">
+                    <div class="dropdown-header">
+                        <div style="font-weight: 600; color: var(--text-white); font-size: 13px;">{{ session.get('user', {}).get('display_name') or session.get('user', {}).get('username') }}</div>
+                        <div style="font-size: 11px; color: var(--text-muted);">@{{ session.get('user', {}).get('username') }} &bull; <span style="text-transform: capitalize;">{{ session.get('user', {}).get('role') }}</span></div>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <button type="button" class="dropdown-item" onclick="openChangeMyPasswordModal()">
+                        <i class="fa-solid fa-key" style="color: var(--warning);"></i>
+                        <span>Change Password</span>
+                    </button>
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <a href="{{ url_for('ui.users_list') }}" class="dropdown-item">
+                        <i class="fa-solid fa-users-gear" style="color: var(--accent-blue);"></i>
+                        <span>User Management</span>
+                    </a>
+                    <a href="{{ url_for('ui.activity_logs') }}" class="dropdown-item">
+                        <i class="fa-solid fa-clipboard-list" style="color: var(--success);"></i>
+                        <span>Activity Logs</span>
+                    </a>
+                    {% endif %}
+                    <div class="dropdown-divider"></div>
+                    <a href="{{ url_for('ui.logout') }}" class="dropdown-item danger">
+                        <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                        <span>Sign Out</span>
+                    </a>
                 </div>
             </div>
+            {% else %}
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <button id="themeToggle" class="btn-theme-toggle" onclick="toggleTheme();" title="Toggle Theme">
+                    <i class="fa-solid fa-moon"></i>
+                </button>
+            </div>
+            {% endif %}
         </header>
         {% endif %}
 
@@ -292,7 +280,7 @@
         </section>
     </main>
 
-    {% if session.get('account_name') %}
+    {% if session.get('account_name') and session.get('user') %}
     <!-- Global Create Resource Modal -->
     <div class="modal" id="createResourceModal">
         <div class="modal-dialog modal-md">
@@ -323,6 +311,45 @@
             </form>
         </div>
     </div>
+
+    <!-- Self Change Password Modal -->
+    <div class="modal" id="changeMyPasswordModal">
+        <div class="modal-dialog modal-md" style="max-width: 480px;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-title-group">
+                        <i class="fa-solid fa-key title-icon" style="color: var(--warning);"></i>
+                        <h3>Change Password</h3>
+                    </div>
+                    <button type="button" class="modal-close" onclick="closeModal('changeMyPasswordModal')">&times;</button>
+                </div>
+                <form method="POST" action="{{ url_for('ui.change_my_password') }}" onsubmit="return validateMyPasswordChange(event)">
+                    <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                        <div>
+                            <label class="form-label">Current Password *</label>
+                            <input type="password" name="current_password" required placeholder="Enter current password" class="form-control">
+                        </div>
+                        <div>
+                            <label class="form-label">New Password *</label>
+                            <input type="password" name="new_password" id="myNewPassword" required placeholder="Minimum 4 characters" class="form-control">
+                        </div>
+                        <div>
+                            <label class="form-label">Confirm New Password *</label>
+                            <input type="password" name="confirm_password" id="myConfirmPassword" required placeholder="Repeat new password" class="form-control">
+                        </div>
+                        <div id="myPasswordError" style="display: none; color: #f87171; font-size: 12px;"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-neutral" onclick="closeModal('changeMyPasswordModal')">Cancel</button>
+                        <button type="submit" class="btn btn-primary" style="background-color: var(--warning); border-color: var(--warning); color: #000;">
+                            <i class="fa-solid fa-check"></i>
+                            <span>Update Password</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
     {% endif %}
 
     <!-- Custom Logic Script -->
@@ -332,6 +359,45 @@
             const parent = element.parentElement;
             parent.classList.toggle('expanded');
         }
+
+        function toggleUserProfileDropdown(e) {
+            e.stopPropagation();
+            const dd = document.getElementById('userProfileDropdown');
+            if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function openChangeMyPasswordModal() {
+            const dd = document.getElementById('userProfileDropdown');
+            if (dd) dd.style.display = 'none';
+            openModal('changeMyPasswordModal');
+        }
+
+        function validateMyPasswordChange(e) {
+            const p1 = document.getElementById('myNewPassword').value;
+            const p2 = document.getElementById('myConfirmPassword').value;
+            const err = document.getElementById('myPasswordError');
+            if (p1.length < 4) {
+                e.preventDefault();
+                err.textContent = 'New password must be at least 4 characters long.';
+                err.style.display = 'block';
+                return false;
+            }
+            if (p1 !== p2) {
+                e.preventDefault();
+                err.textContent = 'Passwords do not match.';
+                err.style.display = 'block';
+                return false;
+            }
+            err.style.display = 'none';
+            return true;
+        }
+
+        document.addEventListener('click', function(e) {
+            const dd = document.getElementById('userProfileDropdown');
+            if (dd && dd.style.display !== 'none' && !e.target.closest('.user-profile-wrapper')) {
+                dd.style.display = 'none';
+            }
+        });
     </script>
 </body>
 </html>
