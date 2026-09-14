@@ -22,6 +22,12 @@
                 </p>
             </div>
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                {% if user_role != 'reader' %}
+                <!-- Create New File -->
+                <button type="button" class="btn btn-primary btn-sm" onclick="openCreateBlobModal('{{ container_name }}')" style="display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-file-circle-plus"></i> New File
+                </button>
+                {% endif %}
                 <!-- Download All as ZIP -->
                 <a href="{{ url_for('ui.download_all_blobs', container_name=container_name) }}" class="btn btn-neutral btn-sm" title="Download all blobs in this container as a ZIP archive" style="display: flex; align-items: center; gap: 6px;">
                     <i class="fa-solid fa-file-zipper"></i> Download All
@@ -93,9 +99,12 @@
                       action="{{ url_for('ui.view_blobs', container_name=container_name) }}"
                       onsubmit="uploadBlobsWithProgress(event, this, '{{ container_name }}')"
                       style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="openCreateBlobModal('{{ container_name }}')" style="display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-file-circle-plus"></i> New File
+                    </button>
                     <div class="input-icon-group">
                         <i class="fa-solid fa-folder icon-inside" style="font-size: 13px;"></i>
-                        <input type="text" name="folder" placeholder="Folder path (e.g. reports/)" style="width: 180px; padding-left: 36px;">
+                        <input type="text" name="folder" placeholder="Folder path (e.g. reports/)" style="width: 170px; padding-left: 36px;">
                     </div>
                     <label class="btn btn-neutral btn-sm" style="margin-bottom: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-file-circle-plus"></i> Choose Files
@@ -442,6 +451,52 @@
                     <button type="button" id="btnSaveBlob" class="btn btn-primary" onclick="saveBlobContent()">
                         <i class="fa-solid fa-floppy-disk"></i>
                         <span>Save Changes</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 1b: Create New Blob File Modal -->
+<div class="modal" id="createBlobModal">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <i class="fa-solid fa-file-circle-plus title-icon" style="color: var(--accent-blue);"></i>
+                    <h3>Create New File in Container: <code style="color: var(--accent-blue);">{{ container_name }}</code></h3>
+                </div>
+                <button type="button" class="modal-close" onclick="closeModal('createBlobModal')">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                <div>
+                    <label class="form-label">File Name / Path *</label>
+                    <div class="input-icon-group">
+                        <i class="fa-solid fa-file-lines icon-inside"></i>
+                        <input type="text" id="newBlobFilename" class="form-control" style="padding-left: 36px; font-family: var(--font-code); font-size: 13px;" placeholder="e.g. config.json, notes.txt, logs/app.log" oninput="detectNewBlobType(this.value)">
+                    </div>
+                    <span style="font-size: 11.5px; color: var(--text-muted); margin-top: 4px; display: block;">You can specify virtual folders in the path, e.g. <code>configs/prod/settings.json</code>.</span>
+                </div>
+                
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label class="form-label" style="margin-bottom: 0;">File Content</label>
+                        <span id="newBlobTypeBadge" class="badge badge-neutral" style="font-size: 10px;">text/plain</span>
+                    </div>
+                    <!-- Monospace Code / Text Editor -->
+                    <textarea id="newBlobContentEditor" class="code-editor-textarea" style="min-height: 240px;" spellcheck="false" placeholder="Write or paste file contents here..."></textarea>
+                </div>
+
+                <div id="createBlobError" style="display: none; padding: 8px 12px; background: rgba(239,68,68,0.1); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 12px; color: #fca5a5;"></div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 11px; color: var(--text-muted);">UTF-8 text, JSON, YAML, configs, scripts, and logs supported.</span>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" class="btn btn-neutral" onclick="closeModal('createBlobModal')">Cancel</button>
+                    <button type="button" id="btnSaveNewBlob" class="btn btn-primary" onclick="saveNewBlobFile('{{ container_name }}')" style="background-color: var(--accent-blue); border-color: var(--accent-blue); display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-floppy-disk"></i>
+                        <span>Save & Create File</span>
                     </button>
                 </div>
             </div>

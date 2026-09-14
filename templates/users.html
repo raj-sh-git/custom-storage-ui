@@ -99,11 +99,12 @@
             <thead>
                 <tr style="border-bottom: 2px solid var(--border-color); background-color: rgba(255,255,255,0.02);">
                     <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600;">User & Identity</th>
-                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 140px;">Role</th>
-                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 120px; text-align: center;">Status</th>
-                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 170px;">Last Login</th>
-                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 160px;">Created</th>
-                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 80px; text-align: center;">Actions</th>
+                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 130px;">Role</th>
+                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 110px; text-align: center;">Status</th>
+                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 150px;">Password Expiry</th>
+                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 150px;">Last Login</th>
+                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 110px;">Created</th>
+                    <th style="padding: 10px 14px; color: var(--text-white); font-weight: 600; width: 70px; text-align: center;">Actions</th>
                 </tr>
             </thead>
             <tbody id="usersTableBody">
@@ -117,7 +118,7 @@
                                 {{ u.username[:1]|upper }}
                             </div>
                             <div>
-                                <div style="font-weight: 600; color: var(--text-white); font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                                <div style="font-weight: 600; color: var(--text-white); font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                     {{ u.username }}
                                     {% if u.username == session.get('user', {}).get('username') %}
                                         <span class="badge badge-blue" style="font-size: 9.5px; padding: 1px 6px;">You</span>
@@ -164,6 +165,29 @@
                         {% endif %}
                     </td>
 
+                    <!-- Password Expiry -->
+                    <td style="padding: 10px 14px; vertical-align: middle; font-size: 12px;">
+                        {% if u.password_expiry_days == 0 %}
+                            <span class="badge badge-neutral" style="font-size: 10px; color: var(--text-muted);">Never Expires</span>
+                        {% elif u.is_expired %}
+                            <span class="badge badge-danger" style="font-size: 10px; font-weight: 600;">
+                                <i class="fa-solid fa-triangle-exclamation" style="margin-right: 2px;"></i> Expired
+                            </span>
+                        {% elif u.days_remaining is not none and u.days_remaining <= 7 %}
+                            <span class="badge badge-warning" style="font-size: 10px; font-weight: 600;">
+                                {{ u.days_remaining }}d left ({{ u.password_expiry_days }}d max)
+                            </span>
+                        {% elif u.days_remaining is not none %}
+                            <span class="badge badge-neutral font-mono" style="font-size: 10px;">
+                                {{ u.days_remaining }}d left ({{ u.password_expiry_days }}d)
+                            </span>
+                        {% else %}
+                            <span class="badge badge-neutral font-mono" style="font-size: 10px;">
+                                {{ u.password_expiry_days or 90 }}d max
+                            </span>
+                        {% endif %}
+                    </td>
+
                     <!-- Last Login -->
                     <td style="padding: 10px 14px; color: var(--text-muted); font-size: 11.5px; font-family: var(--font-code); vertical-align: middle;">
                         {% if u.last_login %}
@@ -186,7 +210,7 @@
                             </button>
                             <div class="action-dropdown-menu">
                                 <!-- Edit User -->
-                                <button type="button" class="action-dropdown-item" onclick="openEditUserModal('{{ u.username }}', '{{ u.display_name }}', '{{ u.email }}', '{{ u.role }}')">
+                                <button type="button" class="action-dropdown-item" onclick="openEditUserModal('{{ u.username }}', '{{ u.display_name }}', '{{ u.email }}', '{{ u.role }}', '{{ u.password_expiry_days }}')">
                                     <i class="fa-solid fa-user-pen"></i>
                                     <span>Edit User & Role</span>
                                 </button>
@@ -224,7 +248,7 @@
                 {% endfor %}
             {% else %}
                 <tr>
-                    <td colspan="6" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
+                    <td colspan="7" style="padding: 24px; text-align: center; color: var(--text-muted); font-style: italic;">
                         No users found in system table.
                     </td>
                 </tr>
@@ -265,13 +289,22 @@
                             <input type="email" name="email" placeholder="john@example.com" class="form-control">
                         </div>
                     </div>
-                    <div>
-                        <label class="form-label">Role *</label>
-                        <select name="role" class="form-control db-select" style="width: 100%;">
-                            <option value="contributor" selected>Contributor (Read, Write, Upload, Dequeue, Edit)</option>
-                            <option value="reader">Reader (Strictly Read-Only & Download)</option>
-                            <option value="admin">Administrator (Full Access + User Management & Logs)</option>
-                        </select>
+                    <div style="display: flex; gap: 12px;">
+                        <div style="flex: 1.2;">
+                            <label class="form-label">Role *</label>
+                            <select name="role" class="form-control db-select" style="width: 100%;">
+                                <option value="contributor" selected>Contributor (Full storage access)</option>
+                                <option value="reader">Reader (View-only)</option>
+                                <option value="admin">Admin (User Mgmt & Logs)</option>
+                            </select>
+                        </div>
+                        <div style="flex: 0.8;">
+                            <label class="form-label">Password Expiry</label>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <input type="number" name="password_expiry_days" id="addPasswordExpiry" value="90" min="0" max="3650" class="form-control" style="width: 90px; text-align: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">Days (0=never)</span>
+                            </div>
+                        </div>
                     </div>
                     <div>
                         <label class="form-label">Initial Password *</label>
@@ -297,57 +330,175 @@
     </div>
 </div>
 
-<!-- Modal 2: Bulk Import Users (CSV / Excel) -->
+<!-- Modal 2: Bulk Import Users (CSV / Excel) with Live Preview -->
 <div class="modal" id="bulkUsersModal">
-    <div class="modal-dialog modal-md" style="max-width: 560px; width: 100%;">
+    <div class="modal-dialog modal-lg" style="max-width: 820px; width: 100%;">
         <div class="modal-content">
             <div class="modal-header">
                 <div class="modal-title-group">
                     <i class="fa-solid fa-file-import title-icon" style="color: var(--accent-purple);"></i>
-                    <h3>Bulk Import Users (CSV / Excel)</h3>
+                    <h3 id="bulkUsersModalTitle">Bulk Import Users (CSV / Excel)</h3>
                 </div>
                 <button type="button" class="modal-close" onclick="closeModal('bulkUsersModal')">&times;</button>
             </div>
-            <form method="POST" action="{{ url_for('ui.bulk_create_users') }}" enctype="multipart/form-data">
-                <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
-                    <p style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5;">
-                        Upload a <code>.csv</code> or <code>.xlsx</code> file to create multiple user accounts at once.
-                    </p>
-
-                    <!-- Format Guide Table -->
-                    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; font-size: 12px;">
-                        <div style="font-weight: 600; color: var(--text-white); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
-                            <span>Expected Columns:</span>
-                            <a href="{{ url_for('ui.download_user_template') }}" style="color: var(--accent-blue); text-decoration: none; font-size: 11.5px; font-weight: 500;">
-                                <i class="fa-solid fa-download" style="margin-right: 3px;"></i> Download CSV Template
-                            </a>
-                        </div>
-                        <code style="display: block; font-family: var(--font-code); color: var(--accent-blue); font-size: 11px; line-height: 1.5;">
-                            username,email,password,enforcepasswordreset,role<br>
-                            john,john@john.com,123456,yes,contributor<br>
-                            sarah,sarah@example.com,secret123,yes,reader
-                        </code>
+            
+            <!-- STEP 1: Upload & Format View -->
+            <div id="bulkUploadStep1" style="display: block;">
+                <div class="modal-body" style="display: flex; flex-direction: column; gap: 16px; padding: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <p style="font-size: 12.5px; color: var(--text-muted); margin: 0;">
+                            Upload a <code>.csv</code> or <code>.xlsx</code> file. You will preview accounts before creating them.
+                        </p>
+                        <a href="{{ url_for('ui.download_user_template') }}" class="btn btn-neutral btn-sm" style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--accent-blue);">
+                            <i class="fa-solid fa-download"></i> Download CSV Template
+                        </a>
                     </div>
 
-                    <div>
-                        <label class="form-label">Select File (.csv or .xlsx) *</label>
-                        <div style="display: flex; align-items: center; gap: 10px;">
+                    <!-- Clean Aligned Format Guide Table -->
+                    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
+                        <div style="padding: 8px 12px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-color); font-size: 12px; font-weight: 600; color: var(--text-white);">
+                            <i class="fa-solid fa-table-columns" style="color: var(--accent-purple); margin-right: 6px;"></i> Expected Columns Specification
+                        </div>
+                        <div class="table-responsive" style="margin: 0;">
+                            <table class="table table-sm" style="width: 100%; border-collapse: collapse; font-size: 11.5px; text-align: left; margin-bottom: 0;">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.2); color: var(--text-muted);">
+                                        <th style="padding: 6px 10px;">Column Name</th>
+                                        <th style="padding: 6px 10px; width: 80px;">Required</th>
+                                        <th style="padding: 6px 10px;">Accepted Values / Format</th>
+                                        <th style="padding: 6px 10px; width: 100px;">Default</th>
+                                        <th style="padding: 6px 10px;">Example</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--accent-blue); font-weight: 600;">username</td>
+                                        <td style="padding: 6px 10px;"><span class="badge badge-danger" style="font-size: 9px; padding: 1px 4px;">YES</span></td>
+                                        <td style="padding: 6px 10px; color: var(--text-normal);">Unique alphanumeric login ID</td>
+                                        <td style="padding: 6px 10px; color: var(--text-muted);">--</td>
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--text-muted);">john</td>
+                                    </tr>
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--accent-blue); font-weight: 600;">display_name</td>
+                                        <td style="padding: 6px 10px;"><span class="badge badge-neutral" style="font-size: 9px; padding: 1px 4px;">Optional</span></td>
+                                        <td style="padding: 6px 10px; color: var(--text-normal);">Full friendly name</td>
+                                        <td style="padding: 6px 10px; color: var(--text-muted);">username</td>
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--text-muted);">John Doe</td>
+                                    </tr>
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--accent-blue); font-weight: 600;">email</td>
+                                        <td style="padding: 6px 10px;"><span class="badge badge-neutral" style="font-size: 9px; padding: 1px 4px;">Optional</span></td>
+                                        <td style="padding: 6px 10px; color: var(--text-normal);">Valid email address</td>
+                                        <td style="padding: 6px 10px; color: var(--text-muted);">(empty)</td>
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--text-muted);">john@example.com</td>
+                                    </tr>
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--accent-blue); font-weight: 600;">password</td>
+                                        <td style="padding: 6px 10px;"><span class="badge badge-danger" style="font-size: 9px; padding: 1px 4px;">YES</span></td>
+                                        <td style="padding: 6px 10px; color: var(--text-normal);">Initial plain password (&gt;= 4 chars)</td>
+                                        <td style="padding: 6px 10px; color: var(--text-muted);">--</td>
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--text-muted);">TempPass123!</td>
+                                    </tr>
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--accent-blue); font-weight: 600;">role</td>
+                                        <td style="padding: 6px 10px;"><span class="badge badge-neutral" style="font-size: 9px; padding: 1px 4px;">Optional</span></td>
+                                        <td style="padding: 6px 10px; color: var(--text-normal);"><code style="color: var(--accent-purple);">contributor</code>, <code style="color: var(--accent-purple);">reader</code>, or <code style="color: var(--accent-purple);">admin</code></td>
+                                        <td style="padding: 6px 10px; color: var(--text-muted);">contributor</td>
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--text-muted);">contributor</td>
+                                    </tr>
+                                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--accent-blue); font-weight: 600;">enforcepasswordreset</td>
+                                        <td style="padding: 6px 10px;"><span class="badge badge-neutral" style="font-size: 9px; padding: 1px 4px;">Optional</span></td>
+                                        <td style="padding: 6px 10px; color: var(--text-normal);"><code style="color: var(--warning);">yes</code>, <code style="color: var(--warning);">no</code>, <code style="color: var(--warning);">true</code>, <code style="color: var(--warning);">false</code></td>
+                                        <td style="padding: 6px 10px; color: var(--text-muted);">yes</td>
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--text-muted);">yes</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--accent-blue); font-weight: 600;">password_expiry_days</td>
+                                        <td style="padding: 6px 10px;"><span class="badge badge-neutral" style="font-size: 9px; padding: 1px 4px;">Optional</span></td>
+                                        <td style="padding: 6px 10px; color: var(--text-normal);">Number of days (0 = never expires)</td>
+                                        <td style="padding: 6px 10px; color: var(--text-muted);">90</td>
+                                        <td style="padding: 6px 10px; font-family: var(--font-code); color: var(--text-muted);">90</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- File Picker Area -->
+                    <div style="background: rgba(0,0,0,0.15); border: 2px dashed var(--border-color); border-radius: 8px; padding: 22px; text-align: center;">
+                        <i class="fa-solid fa-cloud-arrow-up" style="font-size: 30px; color: var(--accent-purple); margin-bottom: 8px; display: block;"></i>
+                        <p style="font-size: 13px; color: var(--text-white); font-weight: 500; margin-bottom: 8px;">
+                            Choose a CSV or Excel (.xlsx) file to upload
+                        </p>
+                        <div style="display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap;">
                             <label class="btn btn-neutral btn-sm" style="cursor: pointer; margin-bottom: 0;">
-                                <i class="fa-solid fa-file-circle-plus"></i> Choose File
-                                <input type="file" name="file" accept=".csv,.xlsx" required style="display: none;" onchange="updateFilesNameDisplay(this, 'bulkFileNamePreview')">
+                                <i class="fa-solid fa-folder-open"></i> Browse File
+                                <input type="file" id="bulkUsersFileInput" accept=".csv,.xlsx" style="display: none;" onchange="handleBulkUsersFileSelected(this)">
                             </label>
-                            <span id="bulkFileNamePreview" style="font-size: 12px; color: var(--text-muted); font-weight: 500;">No file chosen</span>
+                            <span id="bulkFileNamePreview" style="font-size: 12.5px; color: var(--text-muted); font-weight: 500;">No file chosen</span>
                         </div>
                     </div>
+
+                    <div id="bulkUploadStep1Error" style="display: none; padding: 8px 12px; background: rgba(239,68,68,0.1); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 12px; color: #fca5a5;"></div>
                 </div>
+
                 <div class="modal-footer">
                     <button type="button" class="btn btn-neutral" onclick="closeModal('bulkUsersModal')">Cancel</button>
-                    <button type="submit" class="btn btn-primary" style="background-color: var(--accent-purple); border-color: var(--accent-purple);">
-                        <i class="fa-solid fa-upload"></i>
-                        <span>Import & Create Users</span>
+                    <button type="button" id="btnPreviewBulkUsers" class="btn btn-primary" onclick="previewBulkUsers()" disabled style="background-color: var(--accent-purple); border-color: var(--accent-purple);">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <span>Preview Users</span>
                     </button>
                 </div>
-            </form>
+            </div>
+
+            <!-- STEP 2: Live Preview View -->
+            <div id="bulkUploadStep2" style="display: none;">
+                <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; padding: 20px;">
+                    <!-- Summary Stats Bar -->
+                    <div id="bulkPreviewSummaryBar" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; font-size: 12.5px;">
+                        <!-- Injected summary stats -->
+                    </div>
+
+                    <!-- Scrollable Preview Table with Masked Passwords -->
+                    <div class="table-responsive" style="max-height: 320px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">
+                        <table class="table table-bordered table-sm align-middle small" style="width: 100%; border-collapse: collapse; text-align: left; margin-bottom: 0;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.3); position: sticky; top: 0; z-index: 1;">
+                                    <th style="padding: 8px; width: 40px; text-align: center; color: var(--text-white);">#</th>
+                                    <th style="padding: 8px; color: var(--text-white);">Username</th>
+                                    <th style="padding: 8px; color: var(--text-white);">Display Name</th>
+                                    <th style="padding: 8px; color: var(--text-white);">Email</th>
+                                    <th style="padding: 8px; width: 95px; text-align: center; color: var(--text-white);">Role</th>
+                                    <th style="padding: 8px; width: 90px; text-align: center; color: var(--text-white);">Password</th>
+                                    <th style="padding: 8px; width: 85px; text-align: center; color: var(--text-white);">Reset</th>
+                                    <th style="padding: 8px; width: 75px; text-align: center; color: var(--text-white);">Expiry</th>
+                                    <th style="padding: 8px; width: 100px; text-align: center; color: var(--text-white);">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bulkPreviewTableBody">
+                                <!-- Injected preview rows -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div id="bulkUploadStep2Error" style="display: none; padding: 8px 12px; background: rgba(239,68,68,0.1); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 12px; color: #fca5a5;"></div>
+                </div>
+
+                <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+                    <button type="button" class="btn btn-neutral btn-sm" onclick="resetBulkUsersModal()">
+                        <i class="fa-solid fa-arrow-left"></i> Choose Another File
+                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="btn btn-neutral" onclick="closeModal('bulkUsersModal')">Cancel</button>
+                        <button type="button" id="btnConfirmBulkCreate" class="btn btn-primary" onclick="confirmBulkUsersCreate()" style="background-color: var(--accent-purple); border-color: var(--accent-purple);">
+                            <i class="fa-solid fa-user-plus"></i>
+                            <span id="btnConfirmBulkCreateText">Confirm & Create Users</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>
@@ -378,13 +529,22 @@
                         <label class="form-label">Email Address</label>
                         <input type="email" name="email" id="editUserEmail" class="form-control">
                     </div>
-                    <div>
-                        <label class="form-label">Role</label>
-                        <select name="role" id="editUserRole" class="form-control db-select" style="width: 100%;">
-                            <option value="contributor">Contributor (Read, Write, Upload, Dequeue, Edit)</option>
-                            <option value="reader">Reader (Strictly Read-Only & Download)</option>
-                            <option value="admin">Administrator (Full Access + User Management & Logs)</option>
-                        </select>
+                    <div style="display: flex; gap: 12px;">
+                        <div style="flex: 1.2;">
+                            <label class="form-label">Role</label>
+                            <select name="role" id="editUserRole" class="form-control db-select" style="width: 100%;">
+                                <option value="contributor">Contributor (Full storage access)</option>
+                                <option value="reader">Reader (View-only)</option>
+                                <option value="admin">Administrator (User Mgmt & Logs)</option>
+                            </select>
+                        </div>
+                        <div style="flex: 0.8;">
+                            <label class="form-label">Password Expiry</label>
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <input type="number" name="password_expiry_days" id="editUserPasswordExpiry" min="0" max="3650" class="form-control" style="width: 90px; text-align: center;">
+                                <span style="font-size: 12px; color: var(--text-muted);">Days (0=never)</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -476,21 +636,217 @@
 function openAddUserModal() {
     document.getElementById('addUsername').value = '';
     document.getElementById('addPassword').value = '';
+    document.getElementById('addPasswordExpiry').value = '90';
     document.getElementById('addUserError').style.display = 'none';
     openModal('addUserModal');
 }
 
 function openBulkUsersModal() {
-    document.getElementById('bulkFileNamePreview').textContent = 'No file chosen';
+    resetBulkUsersModal();
     openModal('bulkUsersModal');
 }
 
-function openEditUserModal(username, display, email, role) {
+function resetBulkUsersModal() {
+    document.getElementById('bulkUploadStep1').style.display = 'block';
+    document.getElementById('bulkUploadStep2').style.display = 'none';
+    const fileInput = document.getElementById('bulkUsersFileInput');
+    if (fileInput) fileInput.value = '';
+    document.getElementById('bulkFileNamePreview').textContent = 'No file chosen';
+    document.getElementById('btnPreviewBulkUsers').disabled = true;
+    document.getElementById('bulkUploadStep1Error').style.display = 'none';
+    document.getElementById('bulkUploadStep2Error').style.display = 'none';
+    const modalTitle = document.getElementById('bulkUsersModalTitle');
+    if (modalTitle) modalTitle.textContent = 'Bulk Import Users (CSV / Excel)';
+}
+
+function handleBulkUsersFileSelected(input) {
+    const preview = document.getElementById('bulkFileNamePreview');
+    const previewBtn = document.getElementById('btnPreviewBulkUsers');
+    if (input.files && input.files.length > 0) {
+        preview.textContent = input.files[0].name;
+        preview.style.color = 'var(--text-white)';
+        previewBtn.disabled = false;
+    } else {
+        preview.textContent = 'No file chosen';
+        preview.style.color = 'var(--text-muted)';
+        previewBtn.disabled = true;
+    }
+}
+
+function previewBulkUsers() {
+    const fileInput = document.getElementById('bulkUsersFileInput');
+    const errDiv = document.getElementById('bulkUploadStep1Error');
+    if (!fileInput.files || fileInput.files.length === 0) {
+        errDiv.textContent = 'Please choose a .csv or .xlsx file.';
+        errDiv.style.display = 'block';
+        return;
+    }
+    errDiv.style.display = 'none';
+
+    const previewBtn = document.getElementById('btnPreviewBulkUsers');
+    previewBtn.disabled = true;
+    previewBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Parsing file...';
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    fetch('/storage-ui/users/bulk-preview', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        previewBtn.disabled = false;
+        previewBtn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> <span>Preview Users</span>';
+        if (data.success) {
+            renderBulkUsersPreview(data);
+        } else {
+            errDiv.textContent = data.error || 'Failed to parse user file.';
+            errDiv.style.display = 'block';
+        }
+    })
+    .catch(err => {
+        previewBtn.disabled = false;
+        previewBtn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> <span>Preview Users</span>';
+        errDiv.textContent = 'Network error: ' + err.message;
+        errDiv.style.display = 'block';
+    });
+}
+
+function renderBulkUsersPreview(data) {
+    const users = data.users || [];
+    const summary = data.summary || {};
+    
+    // Switch Views
+    document.getElementById('bulkUploadStep1').style.display = 'none';
+    document.getElementById('bulkUploadStep2').style.display = 'block';
+    const modalTitle = document.getElementById('bulkUsersModalTitle');
+    if (modalTitle) modalTitle.textContent = `Bulk Import Preview (${users.length} Records)`;
+
+    // Render Summary Bar
+    const summaryBar = document.getElementById('bulkPreviewSummaryBar');
+    summaryBar.innerHTML = `
+        <span style="font-weight: 600; color: var(--text-white);"><i class="fa-solid fa-list-check" style="color: var(--accent-purple); margin-right: 4px;"></i> Total Found: <strong>${summary.total || users.length}</strong></span>
+        <span style="color: var(--border-color);">|</span>
+        <span class="badge badge-success" style="font-size: 11px;"><i class="fa-solid fa-circle-check"></i> ${summary.valid || 0} Ready</span>
+        ${summary.existing ? `<span class="badge badge-warning" style="font-size: 11px;"><i class="fa-solid fa-triangle-exclamation"></i> ${summary.existing} Existing (will update)</span>` : ''}
+        ${summary.invalid ? `<span class="badge badge-danger" style="font-size: 11px;"><i class="fa-solid fa-circle-xmark"></i> ${summary.invalid} Invalid</span>` : ''}
+    `;
+
+    // Render Table Rows (Masked Password)
+    const tbody = document.getElementById('bulkPreviewTableBody');
+    tbody.innerHTML = '';
+
+    if (users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 16px; color: var(--text-muted);">No valid rows found in file.</td></tr>';
+    } else {
+        users.forEach((u, i) => {
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid var(--border-color)';
+            
+            let roleBadge = '<span class="badge badge-success" style="font-size: 10px;">Contributor</span>';
+            if (u.role === 'admin') roleBadge = '<span class="badge badge-warning" style="font-size: 10px;">Admin</span>';
+            if (u.role === 'reader') roleBadge = '<span class="badge badge-purple" style="font-size: 10px;">Reader</span>';
+
+            let statusBadge = '<span class="badge badge-success" style="font-size: 10px;"><i class="fa-solid fa-check"></i> Ready</span>';
+            if (!u.is_valid) {
+                statusBadge = `<span class="badge badge-danger" style="font-size: 10px;" title="${u.error_msg || 'Invalid'}"><i class="fa-solid fa-xmark"></i> ${u.error_msg || 'Invalid'}</span>`;
+            } else if (u.already_exists) {
+                statusBadge = '<span class="badge badge-warning" style="font-size: 10px;" title="User already exists, password & role will update"><i class="fa-solid fa-rotate"></i> Update</span>';
+            }
+
+            const resetBadge = u.must_change_password ? 
+                '<span class="badge badge-warning" style="font-size: 10px;">Yes</span>' : 
+                '<span class="badge badge-neutral" style="font-size: 10px;">No</span>';
+
+            const expiryText = u.password_expiry_days === 0 ? 'Never' : `${u.password_expiry_days || 90}d`;
+
+            tr.innerHTML = `
+                <td style="padding: 6px 8px; text-align: center; color: var(--text-muted); font-mono;">${u.row_index || (i+1)}</td>
+                <td style="padding: 6px 8px; font-weight: 600; color: var(--text-white); font-family: var(--font-code);">${u.username || '--'}</td>
+                <td style="padding: 6px 8px; color: var(--text-normal);">${u.display_name || u.username || '--'}</td>
+                <td style="padding: 6px 8px; color: var(--text-muted); font-size: 11px;">${u.email || '--'}</td>
+                <td style="padding: 6px 8px; text-align: center;">${roleBadge}</td>
+                <td style="padding: 6px 8px; text-align: center; font-family: var(--font-code); letter-spacing: 2px; color: var(--text-muted); font-size: 11px;">${u.masked_password || '••••••••'}</td>
+                <td style="padding: 6px 8px; text-align: center;">${resetBadge}</td>
+                <td style="padding: 6px 8px; text-align: center; font-size: 11px; color: var(--text-muted); font-family: var(--font-code);">${expiryText}</td>
+                <td style="padding: 6px 8px; text-align: center;">${statusBadge}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    const confirmBtn = document.getElementById('btnConfirmBulkCreate');
+    const confirmBtnText = document.getElementById('btnConfirmBulkCreateText');
+    const validCount = summary.valid || 0;
+    if (confirmBtn && confirmBtnText) {
+        if (validCount > 0) {
+            confirmBtn.disabled = false;
+            confirmBtnText.textContent = `Confirm & Create ${validCount} User(s)`;
+        } else {
+            confirmBtn.disabled = true;
+            confirmBtnText.textContent = 'No Valid Users to Create';
+        }
+    }
+}
+
+function confirmBulkUsersCreate() {
+    const confirmBtn = document.getElementById('btnConfirmBulkCreate');
+    const errDiv = document.getElementById('bulkUploadStep2Error');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating users...';
+    }
+    if (errDiv) errDiv.style.display = 'none';
+
+    fetch('/storage-ui/users/bulk-create', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ confirm: true })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            closeModal('bulkUsersModal');
+            showToast(data.message || `${data.created} users created successfully!`, 'success');
+            setTimeout(() => { window.location.reload(); }, 600);
+        } else {
+            if (confirmBtn) {
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i> <span>Confirm & Create Users</span>';
+            }
+            if (errDiv) {
+                errDiv.textContent = data.error || 'Failed to create users.';
+                errDiv.style.display = 'block';
+            }
+        }
+    })
+    .catch(err => {
+        if (confirmBtn) {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i> <span>Confirm & Create Users</span>';
+        }
+        if (errDiv) {
+            errDiv.textContent = 'Network error: ' + err.message;
+            errDiv.style.display = 'block';
+        }
+    });
+}
+
+function openEditUserModal(username, display, email, role, passwordExpiryDays) {
     document.getElementById('editUserUsername').value = username;
     document.getElementById('editUserDisplayUsername').value = username;
     document.getElementById('editUserDisplayName').value = display || '';
     document.getElementById('editUserEmail').value = email || '';
     document.getElementById('editUserRole').value = role || 'contributor';
+    const expiryInput = document.getElementById('editUserPasswordExpiry');
+    if (expiryInput) {
+        expiryInput.value = (passwordExpiryDays !== undefined && passwordExpiryDays !== '' && passwordExpiryDays !== 'None') ? passwordExpiryDays : '90';
+    }
     openModal('editUserModal');
 }
 

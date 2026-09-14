@@ -585,6 +585,107 @@ function saveBlobContent() {
     });
 }
 
+function detectNewBlobType(filename) {
+    const badge = document.getElementById('newBlobTypeBadge');
+    if (!badge) return;
+    const fn = (filename || '').toLowerCase().trim();
+    if (fn.endsWith('.json')) badge.textContent = 'application/json';
+    else if (fn.endsWith('.yaml') || fn.endsWith('.yml')) badge.textContent = 'application/x-yaml';
+    else if (fn.endsWith('.xml')) badge.textContent = 'application/xml';
+    else if (fn.endsWith('.csv')) badge.textContent = 'text/csv';
+    else if (fn.endsWith('.html') || fn.endsWith('.htm')) badge.textContent = 'text/html';
+    else if (fn.endsWith('.css')) badge.textContent = 'text/css';
+    else if (fn.endsWith('.js')) badge.textContent = 'text/javascript';
+    else if (fn.endsWith('.py')) badge.textContent = 'text/x-python';
+    else if (fn.endsWith('.sh')) badge.textContent = 'text/x-sh';
+    else if (fn.endsWith('.md')) badge.textContent = 'text/markdown';
+    else if (fn.endsWith('.sql')) badge.textContent = 'text/x-sql';
+    else badge.textContent = 'text/plain';
+}
+
+function openCreateBlobModal(containerName) {
+    const fnInput = document.getElementById('newBlobFilename');
+    const editor = document.getElementById('newBlobContentEditor');
+    const errDiv = document.getElementById('createBlobError');
+    const saveBtn = document.getElementById('btnSaveNewBlob');
+
+    if (fnInput) fnInput.value = '';
+    if (editor) editor.value = '';
+    if (errDiv) errDiv.style.display = 'none';
+    if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> <span>Save & Create File</span>';
+    }
+    detectNewBlobType('');
+    openModal('createBlobModal');
+    if (fnInput) fnInput.focus();
+}
+
+function saveNewBlobFile(containerName) {
+    const fnInput = document.getElementById('newBlobFilename');
+    const editor = document.getElementById('newBlobContentEditor');
+    const errDiv = document.getElementById('createBlobError');
+    const saveBtn = document.getElementById('btnSaveNewBlob');
+
+    const filename = (fnInput ? fnInput.value : '').trim();
+    const content = editor ? editor.value : '';
+
+    if (!filename) {
+        if (errDiv) {
+            errDiv.textContent = 'Filename or virtual path is required.';
+            errDiv.style.display = 'block';
+        }
+        if (fnInput) fnInput.focus();
+        return;
+    }
+    if (errDiv) errDiv.style.display = 'none';
+
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating file...';
+    }
+
+    fetch(`/storage-ui/blobs/${encodeURIComponent(containerName)}/save-content`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({
+            blob_name: filename,
+            content: content,
+            is_new: true
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            closeModal('createBlobModal');
+            showToast(`File '${filename}' created successfully!`, 'success');
+            setTimeout(() => { window.location.reload(); }, 600);
+        } else {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> <span>Save & Create File</span>';
+            }
+            if (errDiv) {
+                errDiv.textContent = data.error || 'Failed to create file.';
+                errDiv.style.display = 'block';
+            }
+        }
+    })
+    .catch(err => {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> <span>Save & Create File</span>';
+        }
+        if (errDiv) {
+            errDiv.textContent = 'Network error: ' + err.message;
+            errDiv.style.display = 'block';
+        }
+    });
+}
+
 // --- 8. Instant Client-Side Table Filter ---
 function filterBlobsTable(query) {
     const q = (query || '').toLowerCase().trim();
