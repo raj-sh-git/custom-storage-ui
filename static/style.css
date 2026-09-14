@@ -849,6 +849,65 @@ body.light-theme .badge-warning {
     color: var(--text-white);
 }
 
+/* Compact Toolbar Filter Controls */
+.filter-select-control {
+    height: 36px;
+    padding: 6px 32px 6px 12px;
+    background-color: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-white);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    outline: none;
+    transition: var(--transition-fast);
+    cursor: pointer;
+    box-sizing: border-box;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 14px 14px;
+    white-space: nowrap;
+}
+
+.filter-select-control:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-glow);
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
+.filter-select-control option {
+    background-color: #1e293b;
+    color: #f8fafc;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+.filter-input-control {
+    height: 36px;
+    padding: 6px 12px;
+    background-color: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-white);
+    font-family: var(--font-body);
+    font-size: 13px;
+    outline: none;
+    transition: var(--transition-fast);
+    box-sizing: border-box;
+}
+
+.filter-input-control:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-glow);
+    background-color: rgba(0, 0, 0, 0.4);
+}
+
 .remember-me {
     display: flex;
     align-items: center;
@@ -2220,6 +2279,24 @@ body.light-theme .db-select {
 body.light-theme .db-select option {
     background-color: #ffffff !important;
     color: #0f172a !important;
+}
+
+body.light-theme .filter-select-control {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+}
+
+body.light-theme .filter-select-control option {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+}
+
+body.light-theme .filter-input-control {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
 }
 
 /* Official SVG brand icon styling */

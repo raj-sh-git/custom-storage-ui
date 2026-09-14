@@ -1687,10 +1687,23 @@ def delete_multiple_blobs(container_name):
     if not has_write_permission():
         return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
 
-    data = request.get_json(silent=True) or request.form
-    blob_names = data.get('blobs', [])
-    if isinstance(blob_names, str):
-        blob_names = [b.strip() for b in blob_names.split(',') if b.strip()]
+    raw_names = []
+    if request.is_json or (request.headers.get('Content-Type') or '').startswith('application/json'):
+        data = request.get_json(silent=True) or {}
+        raw_names = data.get('blob_names') or data.get('blobs') or data.get('blob_name') or data.get('names') or []
+    else:
+        raw_names = request.form.getlist('blob_names') or request.form.getlist('blobs') or request.form.getlist('blob_names[]') or request.form.getlist('names')
+        if not raw_names:
+            single = request.form.get('blob_names') or request.form.get('blobs') or request.form.get('blob_name') or request.form.get('name')
+            if single:
+                raw_names = [single]
+
+    if isinstance(raw_names, str):
+        blob_names = [b.strip() for b in raw_names.split(',') if b.strip()]
+    elif isinstance(raw_names, list):
+        blob_names = [str(b).strip() for b in raw_names if str(b).strip()]
+    else:
+        blob_names = []
 
     if not blob_names:
         return jsonify({"success": False, "error": "No blobs specified for deletion"}), 400
@@ -1868,10 +1881,23 @@ def download_selected_blobs(container_name):
     if not require_auth():
         return jsonify({"success": False, "error": "Not authenticated"}), 401
 
-    data = request.get_json(silent=True) or request.form
-    blob_names = data.get('blobs', [])
-    if isinstance(blob_names, str):
-        blob_names = [b.strip() for b in blob_names.split(',') if b.strip()]
+    raw_names = []
+    if request.is_json or (request.headers.get('Content-Type') or '').startswith('application/json'):
+        data = request.get_json(silent=True) or {}
+        raw_names = data.get('blob_names') or data.get('blobs') or data.get('blob_name') or data.get('names') or []
+    else:
+        raw_names = request.form.getlist('blob_names') or request.form.getlist('blobs') or request.form.getlist('blob_names[]') or request.form.getlist('names')
+        if not raw_names:
+            single = request.form.get('blob_names') or request.form.get('blobs') or request.form.get('blob_name') or request.form.get('name')
+            if single:
+                raw_names = [single]
+
+    if isinstance(raw_names, str):
+        blob_names = [b.strip() for b in raw_names.split(',') if b.strip()]
+    elif isinstance(raw_names, list):
+        blob_names = [str(b).strip() for b in raw_names if str(b).strip()]
+    else:
+        blob_names = []
 
     if not blob_names:
         return jsonify({"success": False, "error": "No blobs selected"}), 400

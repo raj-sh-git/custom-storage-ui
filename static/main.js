@@ -459,7 +459,10 @@ function confirmBulkDeleteBlobs(containerName) {
             'Content-Type': 'application/json',
             'X-Requested-With': 'XMLHttpRequest'
         },
-        body: JSON.stringify({ blob_names: Array.from(selectedBlobs) })
+        body: JSON.stringify({
+            blob_names: Array.from(selectedBlobs),
+            blobs: Array.from(selectedBlobs)
+        })
     })
     .then(res => res.json())
     .then(data => {
