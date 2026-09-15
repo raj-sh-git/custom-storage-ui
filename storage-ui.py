@@ -638,24 +638,24 @@ def load_sidebar_tree():
         'tables': []
     }
     
-    # 1. Containers
+    # 1. Blob Containers
     try:
         blob_svc = get_blob_service()
-        tree['containers'] = [c.name for c in blob_svc.list_containers(results_per_page=100)]
+        tree['containers'] = [c.name if hasattr(c, 'name') else (c.get('name') if isinstance(c, dict) else str(c)) for c in blob_svc.list_containers(results_per_page=100)]
     except Exception as e:
         print(f"Error loading containers for sidebar: {e}")
         
     # 2. File Shares
     try:
         share_svc = get_share_service()
-        tree['shares'] = [s.name for s in share_svc.list_shares(results_per_page=100)]
+        tree['shares'] = [s.name if hasattr(s, 'name') else (s.get('name') if isinstance(s, dict) else str(s)) for s in share_svc.list_shares(results_per_page=100)]
     except Exception as e:
         print(f"Error loading shares for sidebar: {e}")
         
     # 3. Queues
     try:
         queue_svc = get_queue_service()
-        tree['queues'] = [q.name for q in queue_svc.list_queues(results_per_page=100)]
+        tree['queues'] = [q.name if hasattr(q, 'name') else (q.get('name') if isinstance(q, dict) else str(q)) for q in queue_svc.list_queues(results_per_page=100)]
     except Exception as e:
         print(f"Error loading queues for sidebar: {e}")
         
@@ -2470,6 +2470,67 @@ def delete_queue():
         flash(f"Error deleting queue: {e}")
     return redirect(url_for('ui.queues'))
 
+def format_queue_message(msg):
+    """Helper to safely format an Azure QueueMessage into a structured dictionary for UI rendering."""
+    raw_content = getattr(msg, 'content', '') or ''
+    if isinstance(raw_content, bytes):
+        try:
+            raw_content = raw_content.decode('utf-8')
+        except Exception:
+            raw_content = raw_content.decode('latin-1', errors='replace')
+    else:
+        raw_content = str(raw_content)
+
+    decoded_content = raw_content
+    is_base64 = False
+
+    trimmed_raw = raw_content.strip()
+    if trimmed_raw and len(trimmed_raw) >= 4:
+        try:
+            missing_padding = (4 - (len(trimmed_raw) % 4)) % 4
+            padded = trimmed_raw + ('=' * missing_padding)
+            decoded_bytes = base64.b64decode(padded.replace('-', '+').replace('_', '/'), validate=True)
+            candidate = decoded_bytes.decode('utf-8')
+            if candidate and (candidate.isprintable() or '\n' in candidate or '\r' in candidate or '\t' in candidate):
+                if candidate != raw_content:
+                    decoded_content = candidate
+                    is_base64 = True
+        except Exception:
+            pass
+
+    ins_time = getattr(msg, 'insertion_time', None)
+    if ins_time and isinstance(ins_time, datetime):
+        ins_time_str = ins_time.strftime("%Y-%m-%d %H:%M:%S")
+    elif ins_time:
+        ins_time_str = str(ins_time)
+    else:
+        ins_time_str = "--"
+
+    exp_time = getattr(msg, 'expiration_time', None)
+    if exp_time and isinstance(exp_time, datetime):
+        exp_time_str = exp_time.strftime("%Y-%m-%d %H:%M:%S")
+    elif exp_time:
+        exp_time_str = str(exp_time)
+    else:
+        exp_time_str = "--"
+
+    raw_preview = raw_content[:120] + ('...' if len(raw_content) > 120 else '')
+
+    return {
+        'id': getattr(msg, 'id', ''),
+        'content': raw_content,
+        'raw_content': raw_content,
+        'decoded_content': decoded_content,
+        'is_base64': is_base64,
+        'raw_preview': raw_preview,
+        'insertion_time': ins_time,
+        'insertion_time_str': ins_time_str,
+        'expiration_time': exp_time,
+        'expiration_time_str': exp_time_str,
+        'dequeue_count': getattr(msg, 'dequeue_count', 0) or 0,
+        'pop_receipt': getattr(msg, 'pop_receipt', None)
+    }
+
 @ui.route('/queues/<queue>')
 def view_queue(queue):
     if not require_auth():
@@ -2506,36 +2567,40 @@ def view_queue(queue):
     sort_by = request.args.get('sort', 'inserted_on').strip().lower()
     order = request.args.get('order', 'desc').strip().lower()
 
-    queue_client = get_queue_service().get_queue_client(queue)
-
     try:
+        queue_client = get_queue_service().get_queue_client(queue)
         raw_msgs = list(queue_client.peek_messages(max_messages=32))
     except Exception as e:
-        flash(f"Error reading queue: {e}")
+        flash(f"Error reading queue '{queue}': {e}")
         raw_msgs = []
 
     filtered_msgs = []
-    for msg in raw_msgs:
-        if search_query and search_query.lower() not in (msg.content or '').lower() and search_query.lower() not in msg.id.lower():
-            continue
+    for raw in raw_msgs:
+        m = format_queue_message(raw)
+        if search_query:
+            sq = search_query.lower()
+            if sq not in m['raw_content'].lower() and sq not in m['decoded_content'].lower() and sq not in m['id'].lower():
+                continue
         if from_dt or to_dt:
-            lm = getattr(msg, 'insertion_time', None)
-            if lm:
-                m_date = lm.date()
+            ins = m.get('insertion_time')
+            if ins and hasattr(ins, 'date'):
+                m_date = ins.date()
                 if from_dt and m_date < from_dt:
                     continue
                 if to_dt and m_date > to_dt:
                     continue
-        filtered_msgs.append(msg)
+        filtered_msgs.append(m)
 
-    def sort_key(msg):
+    def sort_key(msg_dict):
         if sort_by == 'inserted_on':
-            return msg.insertion_time.timestamp() if getattr(msg, 'insertion_time', None) else 0
+            ins = msg_dict.get('insertion_time')
+            return ins.timestamp() if ins and hasattr(ins, 'timestamp') else 0
         elif sort_by == 'expires_on':
-            return msg.expiration_time.timestamp() if getattr(msg, 'expiration_time', None) else 0
+            exp = msg_dict.get('expiration_time')
+            return exp.timestamp() if exp and hasattr(exp, 'timestamp') else 0
         elif sort_by == 'dequeue_count':
-            return getattr(msg, 'dequeue_count', 0) or 0
-        return msg.id
+            return msg_dict.get('dequeue_count', 0) or 0
+        return msg_dict.get('id', '')
 
     reverse = (order == 'desc')
     filtered_msgs.sort(key=sort_key, reverse=reverse)
@@ -2550,10 +2615,13 @@ def view_queue(queue):
     paginated_msgs = filtered_msgs[start_idx:end_idx]
 
     tree = load_sidebar_tree()
+    all_queues = tree.get('queues', [])
     return render_template(
         'queues.html',
         messages=paginated_msgs,
+        queue=queue,
         queue_name=queue,
+        all_queues=all_queues,
         search_query=search_query,
         page=page,
         total_pages=total_pages,
@@ -2570,23 +2638,53 @@ def view_queue(queue):
 
 @ui.route('/queues/<queue>/enqueue', methods=['POST'])
 def enqueue_message(queue):
+    is_json = request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     if not require_auth():
+        if is_json:
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
         return redirect(url_for('ui.login'))
     if not has_write_permission():
+        if is_json:
+            return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
         flash("Permission denied. Reader role is read-only.")
         return redirect(url_for('ui.view_queue', queue=queue))
         
-    content = request.form.get('content', '').strip()
-    ttl = int(request.form.get('ttl', 604800) or 604800)
-    visibility_timeout = int(request.form.get('visibility_timeout', 0) or 0)
+    data = request.get_json(silent=True) or request.form
+    content = (data.get('msg') or data.get('content') or '').strip()
+    encoding = data.get('encoding', 'base64')
+    try:
+        ttl = int(data.get('time_to_live') or data.get('ttl') or 604800)
+    except Exception:
+        ttl = 604800
+    try:
+        visibility_timeout = int(data.get('visibility_timeout') or 0)
+    except Exception:
+        visibility_timeout = 0
+
+    if not content:
+        if is_json:
+            return jsonify({'success': False, 'error': 'Message content cannot be empty'}), 400
+        flash("Message content cannot be empty")
+        return redirect(url_for('ui.view_queue', queue=queue))
+
+    if encoding == 'base64':
+        try:
+            base64.b64decode(content.strip(), validate=True)
+        except Exception:
+            content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
 
     try:
         queue_client = get_queue_service().get_queue_client(queue)
-        queue_client.send_message(content, time_to_live=ttl, visibility_timeout=visibility_timeout)
+        msg_res = queue_client.send_message(content, time_to_live=ttl, visibility_timeout=visibility_timeout)
+        msg_id = getattr(msg_res, 'id', None)
         log_activity('queue', 'ENQUEUE_MESSAGE', queue, 'SUCCESS', details=f"Size: {len(content)} chars, TTL: {ttl}s")
+        if is_json:
+            return jsonify({'success': True, 'id': msg_id, 'message': 'Message enqueued successfully.'})
         flash("Message enqueued successfully.")
     except Exception as e:
         log_activity('queue', 'ENQUEUE_MESSAGE', queue, 'FAILED', details=str(e))
+        if is_json:
+            return jsonify({'success': False, 'error': str(e)}), 400
         flash(f"Error enqueuing message: {e}")
 
     return redirect(url_for('ui.view_queue', queue=queue))
@@ -2595,7 +2693,7 @@ def enqueue_message(queue):
 def get_queue_message_content(queue):
     if not require_auth():
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-    msg_id = request.args.get('id')
+    msg_id = request.args.get('msg_id') or request.args.get('id')
     if not msg_id:
         return jsonify({'success': False, 'error': 'Message ID is required'}), 400
     try:
@@ -2603,13 +2701,17 @@ def get_queue_message_content(queue):
         messages = list(queue_client.peek_messages(max_messages=32))
         for msg in messages:
             if msg.id == msg_id:
+                formatted = format_queue_message(msg)
                 return jsonify({
                     'success': True,
-                    'id': msg.id,
-                    'content': msg.content,
-                    'insertion_time': msg.insertion_time.isoformat() if hasattr(msg, 'insertion_time') and msg.insertion_time else '',
-                    'expiration_time': msg.expiration_time.isoformat() if hasattr(msg, 'expiration_time') and msg.expiration_time else '',
-                    'dequeue_count': getattr(msg, 'dequeue_count', 0)
+                    'id': formatted['id'],
+                    'content': formatted['raw_content'],
+                    'raw_content': formatted['raw_content'],
+                    'decoded_content': formatted['decoded_content'],
+                    'is_base64': formatted['is_base64'],
+                    'insertion_time': formatted['insertion_time_str'],
+                    'expiration_time': formatted['expiration_time_str'],
+                    'dequeue_count': formatted['dequeue_count']
                 })
         return jsonify({'success': False, 'error': 'Message not found'}), 404
     except Exception as e:
@@ -2623,10 +2725,18 @@ def update_queue_message(queue):
         return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
         
     data = request.get_json(silent=True) or request.form
-    msg_id = data.get('id')
+    msg_id = data.get('msg_id') or data.get('id')
     content = data.get('content')
+    encoding = data.get('encoding', 'base64')
     if not msg_id or content is None:
         return jsonify({'success': False, 'error': 'Message ID and Content are required'}), 400
+
+    if encoding == 'base64':
+        try:
+            base64.b64decode(content.strip(), validate=True)
+        except Exception:
+            content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+
     try:
         queue_client = get_queue_service().get_queue_client(queue)
         msgs = list(queue_client.receive_messages(messages_per_page=32, visibility_timeout=30))
@@ -2653,7 +2763,7 @@ def dequeue_single_message(queue):
         return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
         
     data = request.get_json(silent=True) or request.form
-    msg_id = data.get('id')
+    msg_id = data.get('msg_id') or data.get('id')
     if not msg_id:
         return jsonify({'success': False, 'error': 'Message ID required'}), 400
     try:
@@ -2681,7 +2791,7 @@ def dequeue_multiple_messages(queue):
         return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
         
     data = request.get_json(silent=True) or request.form
-    msg_ids = data.get('ids', [])
+    msg_ids = data.get('msg_ids') or data.get('ids', [])
     if not msg_ids:
         return jsonify({'success': False, 'error': 'No message IDs specified'}), 400
     try:
@@ -2693,7 +2803,7 @@ def dequeue_multiple_messages(queue):
                 queue_client.delete_message(m.id, m.pop_receipt)
                 deleted_count += 1
         log_activity('queue', 'DEQUEUE_MULTIPLE', queue, 'SUCCESS', details=f"Dequeued {deleted_count} messages")
-        return jsonify({'success': True, 'deleted_count': deleted_count, 'message': f"Dequeued {deleted_count} messages successfully."})
+        return jsonify({'success': True, 'deleted_count': deleted_count, 'count': deleted_count, 'message': f"Dequeued {deleted_count} messages successfully."})
     except Exception as e:
         log_activity('queue', 'DEQUEUE_MULTIPLE', queue, 'FAILED', details=str(e))
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -2706,31 +2816,49 @@ def send_to_queue(queue):
         return jsonify({'success': False, 'error': 'Permission denied. Reader role is read-only.'}), 403
         
     data = request.get_json(silent=True) or request.form
-    msg_id = data.get('id')
-    dest_queue = data.get('dest_queue')
-    action_type = data.get('action_type', 'copy') # 'move' or 'copy'
-    if not msg_id or not dest_queue:
-        return jsonify({'success': False, 'error': 'Message ID and Destination Queue are required'}), 400
+    raw_msg_ids = data.get('msg_ids')
+    if raw_msg_ids and isinstance(raw_msg_ids, list):
+        msg_ids = raw_msg_ids
+    elif data.get('msg_id'):
+        msg_ids = [data.get('msg_id')]
+    elif data.get('id'):
+        msg_ids = [data.get('id')]
+    else:
+        msg_ids = []
+
+    dest_queue = data.get('destination_queue') or data.get('dest_queue')
+    action_type = data.get('action_type', 'move') # 'move' or 'copy'
+    encoding = data.get('encoding', 'preserve') # 'preserve', 'base64', 'plain'
+    if not msg_ids or not dest_queue:
+        return jsonify({'success': False, 'error': 'Message ID(s) and Destination Queue are required'}), 400
     try:
         svc = get_queue_service()
         src_client = svc.get_queue_client(queue)
         dest_client = svc.get_queue_client(dest_queue)
         
         msgs = list(src_client.receive_messages(messages_per_page=32, visibility_timeout=30))
-        target_msg = None
+        transferred_count = 0
         for m in msgs:
-            if m.id == msg_id:
-                target_msg = m
-                break
-        if not target_msg:
-            return jsonify({'success': False, 'error': 'Message could not be leased or found.'}), 404
+            if m.id in msg_ids:
+                payload = m.content
+                if encoding == 'base64':
+                    try:
+                        base64.b64decode(payload.strip(), validate=True)
+                    except Exception:
+                        payload = base64.b64encode(payload.encode('utf-8')).decode('utf-8')
+                elif encoding == 'plain':
+                    try:
+                        decoded_bytes = base64.b64decode(payload.strip(), validate=True)
+                        payload = decoded_bytes.decode('utf-8')
+                    except Exception:
+                        pass
+                dest_client.send_message(payload)
+                if action_type == 'move':
+                    src_client.delete_message(m.id, m.pop_receipt)
+                transferred_count += 1
             
-        dest_client.send_message(target_msg.content)
-        if action_type == 'move':
-            src_client.delete_message(target_msg.id, target_msg.pop_receipt)
-            
-        log_activity('queue', f"SEND_TO_QUEUE_{action_type.upper()}", f"{queue} -> {dest_queue}", 'SUCCESS', details=f"Message ID: {msg_id}")
-        return jsonify({'success': True, 'message': f"Message {'moved' if action_type == 'move' else 'copied'} to queue '{dest_queue}'."})
+        log_activity('queue', f"SEND_TO_QUEUE_{action_type.upper()}", f"{queue} -> {dest_queue}", 'SUCCESS', details=f"Transferred {transferred_count} messages")
+        return jsonify({'success': True, 'transferred_count': transferred_count, 'message': f"{transferred_count} message(s) {'moved' if action_type == 'move' else 'copied'} to queue '{dest_queue}'."})
     except Exception as e:
         log_activity('queue', f"SEND_TO_QUEUE_{action_type.upper()}", f"{queue} -> {dest_queue}", 'FAILED', details=str(e))
         return jsonify({'success': False, 'error': str(e)}), 400
