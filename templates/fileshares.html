@@ -105,26 +105,26 @@
                                 </button>
                                 <div class="action-dropdown-menu">
                                     {% if user_role != 'reader' %}
-                                    <button type="button" class="action-dropdown-item" onclick="openEditShareFileModal('{{ share }}', '{{ i.name }}')">
+                                    <button type="button" class="action-dropdown-item" onclick="openEditShareFileModal('{{ share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
                                         <i class="fa-solid fa-pen-to-square"></i>
                                         <span>Edit</span>
                                     </button>
-                                    <button type="button" class="action-dropdown-item" onclick="openRenameShareFileModal('{{ share }}', '{{ i.name }}')">
+                                    <button type="button" class="action-dropdown-item" onclick="openRenameShareFileModal('{{ share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
                                         <i class="fa-solid fa-i-cursor"></i>
                                         <span>Rename</span>
                                     </button>
-                                    <button type="button" class="action-dropdown-item" onclick="openMoveShareFileModal('{{ share }}', '{{ i.name }}')">
+                                    <button type="button" class="action-dropdown-item" onclick="openMoveShareFileModal('{{ share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
                                         <i class="fa-solid fa-arrows-up-down-left-right"></i>
                                         <span>Move / Copy</span>
                                     </button>
                                     {% endif %}
-                                    <a href="{{ url_for('ui.download_file', share=share, filename=i.name) }}" class="action-dropdown-item">
+                                    <a href="{{ url_for('ui.download_file', share=share, path=(path + '/' + i.name) if path else i.name) }}" class="action-dropdown-item">
                                         <i class="fa-solid fa-download"></i>
                                         <span>Download</span>
                                     </a>
                                     {% if user_role != 'reader' %}
-                                    <div class="action-dropdown-divider"></div>
-                                    <button type="button" class="action-dropdown-item danger" onclick="openDeleteShareFileModal('{{ share }}', '{{ i.name }}')">
+                                     <div class="action-dropdown-divider"></div>
+                                    <button type="button" class="action-dropdown-item danger" onclick="openDeleteShareFileModal('{{ share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
                                         <i class="fa-solid fa-trash-can"></i>
                                         <span>Delete</span>
                                     </button>

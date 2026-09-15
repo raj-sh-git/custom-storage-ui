@@ -9,10 +9,12 @@ import mimetypes
 import csv
 import openpyxl
 import zipfile
+import time
 from datetime import datetime, timezone, timedelta
 from flask import (
     Flask, render_template, request, redirect, url_for, session,
-    send_file, flash, Blueprint, jsonify, Response, abort, has_request_context
+    send_file, flash, Blueprint, jsonify, Response, abort, has_request_context,
+    stream_with_context
 )
 from flask_session import Session
 from werkzeug.utils import secure_filename
@@ -625,11 +627,78 @@ def query_activity_logs(service=None, username=None, status=None, from_date=None
         return []
 
 # -----------------------
+# In-Memory Cache for High Performance
+# -----------------------
+_SIDEBAR_CACHE = {} # auth_key -> {'time': float, 'tree': dict}
+_CONTAINER_BLOBS_CACHE = {} # container_name -> {'time': float, 'blobs': list}
+SIDEBAR_CACHE_TTL = 30.0 # seconds
+CONTAINER_CACHE_TTL = 15.0 # seconds
+
+def invalidate_sidebar_cache():
+    """Clears cached sidebar navigation tree across all services."""
+    _SIDEBAR_CACHE.clear()
+
+def invalidate_container_cache(container_name=None):
+    """Clears cached blob listings for a specific container or all containers."""
+    if container_name:
+        _CONTAINER_BLOBS_CACHE.pop(container_name, None)
+    else:
+        _CONTAINER_BLOBS_CACHE.clear()
+
+class BlobItemWrapper:
+    """Lightweight object that behaves like Azure SDK's BlobProperties for templates and routes."""
+    __slots__ = ('name', 'size', 'last_modified', 'content_type', 'content_settings')
+    def __init__(self, name, size=0, last_modified=None, content_type='application/octet-stream'):
+        self.name = name
+        self.size = size
+        self.last_modified = last_modified
+        self.content_type = content_type
+        self.content_settings = type('ContentSettingsMock', (), {'content_type': content_type})()
+
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
+def get_container_blobs_cached(container_name, force_refresh=False):
+    """Fetches blobs from Azure Storage and caches lightweight metadata objects with TTL."""
+    now = time.time()
+    if not force_refresh:
+        cached = _CONTAINER_BLOBS_CACHE.get(container_name)
+        if cached and (now - cached['time'] < CONTAINER_CACHE_TTL):
+            return cached['blobs']
+
+    service = get_blob_service()
+    container_client = service.get_container_client(container_name)
+    
+    blob_list = []
+    try:
+        for b in container_client.list_blobs(results_per_page=1000):
+            b_name = getattr(b, 'name', '') or (b.get('name') if isinstance(b, dict) else str(b))
+            b_size = getattr(b, 'size', 0) or (b.get('size', 0) if isinstance(b, dict) else 0) or 0
+            b_lm = getattr(b, 'last_modified', None) or (b.get('last_modified') if isinstance(b, dict) else None)
+            cs = getattr(b, 'content_settings', None)
+            b_ct = (cs and getattr(cs, 'content_type', None)) or mimetypes.guess_type(b_name)[0] or 'application/octet-stream'
+            blob_list.append(BlobItemWrapper(name=b_name, size=b_size, last_modified=b_lm, content_type=b_ct))
+    except Exception as e:
+        print(f"Error listing blobs in {container_name}: {e}")
+        if container_name in _CONTAINER_BLOBS_CACHE:
+            return _CONTAINER_BLOBS_CACHE[container_name]['blobs']
+        raise
+
+    _CONTAINER_BLOBS_CACHE[container_name] = {'time': now, 'blobs': blob_list}
+    return blob_list
+
+# -----------------------
 # Sidebar Navigation Tree Helper
 # -----------------------
 def load_sidebar_tree():
     if not require_auth():
         return {}
+    
+    auth_key = session.get('account_name') or session.get('auth_method') or 'default'
+    now = time.time()
+    cached = _SIDEBAR_CACHE.get(auth_key)
+    if cached and (now - cached['time'] < SIDEBAR_CACHE_TTL):
+        return cached['tree']
     
     tree = {
         'containers': [],
@@ -670,6 +739,7 @@ def load_sidebar_tree():
     except Exception as e:
         print(f"Error loading tables for sidebar: {e}")
         
+    _SIDEBAR_CACHE[auth_key] = {'time': now, 'tree': tree}
     return tree
 
 # -----------------------
@@ -1458,6 +1528,10 @@ def bulk_create():
         flash(f"Service connection error: {e}")
         return redirect(url_for('ui.home'))
         
+    if success_count > 0:
+        invalidate_sidebar_cache()
+        invalidate_container_cache()
+        
     resource_type_display = {
         'container': 'Blob Container(s)',
         'share': 'File Share(s)',
@@ -1501,6 +1575,8 @@ def create_container():
     name = request.form.get('name') or request.form.get('container_name')
     try:
         get_blob_service().create_container(name)
+        invalidate_sidebar_cache()
+        invalidate_container_cache(name)
         log_activity('blob', 'CREATE_CONTAINER', name, 'SUCCESS')
         flash(f"Container '{name}' created.")
     except Exception as e:
@@ -1519,6 +1595,8 @@ def delete_container():
     name = request.form.get('container_name')
     try:
         get_blob_service().delete_container(name)
+        invalidate_sidebar_cache()
+        invalidate_container_cache(name)
         log_activity('blob', 'DELETE_CONTAINER', name, 'SUCCESS')
         flash(f"Container '{name}' deleted.")
     except Exception as e:
@@ -1571,6 +1649,9 @@ def view_blobs(container_name):
                 failed.append(f"{file.filename} ({e})")
                 log_activity('blob', 'UPLOAD_BLOB', f"{container_name}/{blob_name}", 'FAILED', details=str(e))
                 
+        if uploaded:
+            invalidate_container_cache(container_name)
+
         is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.headers.get('Accept') == 'application/json'
         if is_ajax:
             return jsonify({
@@ -1619,7 +1700,7 @@ def view_blobs(container_name):
             pass
 
     try:
-        raw_blobs = list(container_client.list_blobs())
+        raw_blobs = get_container_blobs_cached(container_name)
     except Exception as e:
         flash(f"Error fetching blobs: {e}")
         raw_blobs = []
@@ -1629,7 +1710,7 @@ def view_blobs(container_name):
         if search_query and search_query.lower() not in b.name.lower():
             continue
         if from_dt or to_dt:
-            if hasattr(b, 'last_modified') and b.last_modified:
+            if b.last_modified:
                 blob_date = b.last_modified.date()
                 if from_dt and blob_date < from_dt:
                     continue
@@ -1642,10 +1723,9 @@ def view_blobs(container_name):
         if sort_by == 'size':
             return b.size or 0
         elif sort_by == 'date':
-            return b.last_modified.timestamp() if getattr(b, 'last_modified', None) else 0
+            return b.last_modified.timestamp() if b.last_modified else 0
         elif sort_by == 'type':
-            ct = getattr(b, 'content_settings', None)
-            return (ct.content_type if ct and ct.content_type else '') or ''
+            return b.content_type or ''
         return b.name.lower()
 
     reverse = (order == 'desc')
@@ -1720,6 +1800,9 @@ def delete_multiple_blobs(container_name):
         except Exception as e:
             failed.append(f"{name}: {e}")
 
+    if deleted:
+        invalidate_container_cache(container_name)
+
     status = 'SUCCESS' if len(deleted) > 0 else 'FAILED'
     log_activity('blob', 'DELETE_MULTIPLE_BLOBS', container_name, status, details=f"Deleted {len(deleted)} of {len(blob_names)}: {', '.join(deleted[:5])}")
 
@@ -1746,7 +1829,7 @@ def get_blob_content(container_name):
 
     try:
         props = blob_client.get_blob_properties()
-        content_type = props.content_settings.content_type or mimetypes.guess_type(blob_name)[0] or 'application/octet-stream'
+        content_type = (props.content_settings and props.content_settings.content_type) or mimetypes.guess_type(blob_name)[0] or 'application/octet-stream'
         
         # Max preview size: 10MB
         if props.size > 10 * 1024 * 1024:
@@ -1813,6 +1896,7 @@ def save_blob_content(container_name):
             overwrite=True,
             content_settings=ContentSettings(content_type=guessed_type)
         )
+        invalidate_container_cache(container_name)
         action_name = 'CREATE_BLOB' if is_new else 'EDIT_BLOB_CONTENT'
         log_activity('blob', action_name, f"{container_name}/{blob_name}", 'SUCCESS')
         return jsonify({"success": True, "message": "Saved successfully", "name": blob_name})
@@ -1838,6 +1922,7 @@ def create_blob_folder(container_name):
         service = get_blob_service()
         container_client = service.get_container_client(container_name)
         container_client.upload_blob(name=placeholder, data=b'', overwrite=True)
+        invalidate_container_cache(container_name)
         log_activity('blob', 'CREATE_FOLDER', f"{container_name}/{folder_path}", 'SUCCESS')
         return jsonify({"success": True, "message": f"Folder '{folder_path}' created."})
     except Exception as e:
@@ -1848,14 +1933,35 @@ def create_blob_folder(container_name):
 def download_blob(container_name):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    name = request.args.get('name')
-    service = get_blob_service()
-    blob_client = service.get_container_client(container_name).get_blob_client(name)
-    stream = io.BytesIO()
-    blob_client.download_blob().readinto(stream)
-    stream.seek(0)
-    filename = secure_filename(name.split('/')[-1]) or 'download'
-    return send_file(stream, download_name=filename, as_attachment=True)
+    name = (request.args.get('blob_name') or request.args.get('name') or request.args.get('blob') or '').strip()
+    if not name:
+        flash("Blob name is required for download.")
+        return redirect(url_for('ui.view_blobs', container_name=container_name))
+
+    try:
+        service = get_blob_service()
+        container_client = service.get_container_client(container_name)
+        blob_client = container_client.get_blob_client(name)
+        props = blob_client.get_blob_properties()
+        download_stream = blob_client.download_blob()
+
+        filename = secure_filename(name.split('/')[-1]) or 'download'
+        content_type = (props.content_settings and props.content_settings.content_type) or mimetypes.guess_type(name)[0] or 'application/octet-stream'
+
+        def generate():
+            for chunk in download_stream.chunks():
+                yield chunk
+
+        response = Response(stream_with_context(generate()), mimetype=content_type)
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        if props.size is not None:
+            response.headers['Content-Length'] = str(props.size)
+        log_activity('blob', 'DOWNLOAD_BLOB', f"{container_name}/{name}", 'SUCCESS')
+        return response
+    except Exception as e:
+        log_activity('blob', 'DOWNLOAD_BLOB', f"{container_name}/{name}", 'FAILED', details=str(e))
+        flash(f"Error downloading blob: {e}")
+        return redirect(url_for('ui.view_blobs', container_name=container_name))
 
 @ui.route('/blobs/<container_name>/delete', methods=['POST'])
 def delete_blob(container_name):
@@ -1865,10 +1971,15 @@ def delete_blob(container_name):
         flash("Permission denied. Reader role is read-only.")
         return redirect(url_for('ui.view_blobs', container_name=container_name))
         
-    name = request.form.get('blob_name')
+    name = request.form.get('blob_name') or request.form.get('name')
+    if not name:
+        flash("Blob name is required.")
+        return redirect(url_for('ui.view_blobs', container_name=container_name))
+
     try:
         service = get_blob_service()
         service.get_container_client(container_name).delete_blob(name)
+        invalidate_container_cache(container_name)
         log_activity('blob', 'DELETE_BLOB', f"{container_name}/{name}", 'SUCCESS')
         flash(f"Blob '{name}' deleted.")
     except Exception as e:
@@ -1905,16 +2016,26 @@ def download_selected_blobs(container_name):
     service = get_blob_service()
     container_client = service.get_container_client(container_name)
 
-    # If single blob, download directly
+    # If single blob, download directly via streaming
     if len(blob_names) == 1:
         name = blob_names[0]
         try:
             blob_client = container_client.get_blob_client(name)
-            stream = io.BytesIO()
-            blob_client.download_blob().readinto(stream)
-            stream.seek(0)
-            filename = name.split('/')[-1] or 'download'
-            return send_file(stream, download_name=filename, as_attachment=True)
+            props = blob_client.get_blob_properties()
+            download_stream = blob_client.download_blob()
+            filename = secure_filename(name.split('/')[-1]) or 'download'
+            content_type = (props.content_settings and props.content_settings.content_type) or mimetypes.guess_type(name)[0] or 'application/octet-stream'
+
+            def generate_single():
+                for chunk in download_stream.chunks():
+                    yield chunk
+
+            response = Response(stream_with_context(generate_single()), mimetype=content_type)
+            response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+            if props.size is not None:
+                response.headers['Content-Length'] = str(props.size)
+            log_activity('blob', 'DOWNLOAD_SELECTED', f"{container_name}/{name}", 'SUCCESS')
+            return response
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 400
 
@@ -1932,6 +2053,7 @@ def download_selected_blobs(container_name):
 
     zip_buffer.seek(0)
     zip_filename = f"{secure_filename(container_name)}_selected_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    log_activity('blob', 'DOWNLOAD_SELECTED_ZIP', container_name, 'SUCCESS', details=f"Downloaded {len(blob_names)} blobs as ZIP")
     return send_file(zip_buffer, mimetype='application/zip', download_name=zip_filename, as_attachment=True)
 
 @ui.route('/blobs/<container_name>/download-all')
@@ -1961,6 +2083,7 @@ def download_all_blobs(container_name):
 
     zip_buffer.seek(0)
     zip_filename = f"{secure_filename(container_name)}_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    log_activity('blob', 'DOWNLOAD_ALL_ZIP', container_name, 'SUCCESS', details=f"Downloaded {count} blobs as ZIP")
     return send_file(zip_buffer, mimetype='application/zip', download_name=zip_filename, as_attachment=True)
 
 @ui.route('/blobs/<container_name>/empty', methods=['POST'])
@@ -1979,6 +2102,7 @@ def empty_container(container_name):
         for blob in container_client.list_blobs():
             container_client.delete_blob(blob.name)
             deleted_count += 1
+        invalidate_container_cache(container_name)
         log_activity('blob', 'EMPTY_CONTAINER', container_name, 'SUCCESS', details=f"Deleted {deleted_count} blobs")
         flash(f"Emptied container '{container_name}'. Deleted {deleted_count} blobs.")
     except Exception as e:
@@ -1995,7 +2119,7 @@ def rename_blob(container_name):
         return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
 
     data = request.get_json(silent=True) or request.form
-    old_name = data.get('old_name')
+    old_name = data.get('old_name') or data.get('name')
     new_name = data.get('new_name')
 
     if not old_name or not new_name:
@@ -2010,6 +2134,7 @@ def rename_blob(container_name):
 
         dest_blob.start_copy_from_url(source_blob.url)
         source_blob.delete_blob()
+        invalidate_container_cache(container_name)
         log_activity('blob', 'RENAME_BLOB', f"{container_name}/{old_name} -> {new_name}", 'SUCCESS')
         return jsonify({"success": True, "message": f"Renamed '{old_name}' to '{new_name}'."})
     except Exception as e:
@@ -2024,7 +2149,7 @@ def move_copy_blob(container_name):
         return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
 
     data = request.get_json(silent=True) or request.form
-    blob_name = data.get('blob_name')
+    blob_name = data.get('blob_name') or data.get('name')
     dest_container = data.get('dest_container')
     dest_name = data.get('dest_name') or blob_name
     action_type = data.get('action_type', 'copy')
@@ -2040,6 +2165,8 @@ def move_copy_blob(container_name):
         dest_client.start_copy_from_url(src_client.url)
         if action_type == 'move':
             src_client.delete_blob()
+        invalidate_container_cache(container_name)
+        invalidate_container_cache(dest_container)
         log_activity('blob', f"{action_type.upper()}_BLOB", f"{container_name}/{blob_name} -> {dest_container}/{dest_name}", 'SUCCESS')
         return jsonify({"success": True, "message": f"Successfully {'moved' if action_type == 'move' else 'copied'} to '{dest_container}/{dest_name}'."})
     except Exception as e:
@@ -2074,6 +2201,7 @@ def create_share():
     name = request.form.get('name') or request.form.get('share_name')
     try:
         get_share_service().create_share(name)
+        invalidate_sidebar_cache()
         log_activity('file', 'CREATE_SHARE', name, 'SUCCESS')
         flash(f"File share '{name}' created.")
     except Exception as e:
@@ -2092,6 +2220,7 @@ def delete_share():
     name = request.form.get('share_name')
     try:
         get_share_service().delete_share(name)
+        invalidate_sidebar_cache()
         log_activity('file', 'DELETE_SHARE', name, 'SUCCESS')
         flash(f"File share '{name}' deleted.")
     except Exception as e:
@@ -2269,27 +2398,55 @@ def upload_file(share):
 def download_file(share):
     if not require_auth():
         return redirect(url_for('ui.login'))
-    path = request.args.get('path', '').strip('/')
-    share_client = get_share_service().get_share_client(share)
-    file_client = share_client.get_file_client(path)
-    stream = io.BytesIO()
-    file_client.download_file().readinto(stream)
-    stream.seek(0)
-    filename = secure_filename(path.split('/')[-1]) or 'download'
-    return send_file(stream, download_name=filename, as_attachment=True)
+    path = (request.args.get('path') or request.args.get('filename') or request.args.get('name') or request.args.get('file') or '').strip('/')
+    if not path:
+        flash("File path is required for download.")
+        return redirect(url_for('ui.list_files', share=share))
+
+    try:
+        share_client = get_share_service().get_share_client(share)
+        file_client = share_client.get_file_client(path)
+        props = file_client.get_file_properties()
+        download_stream = file_client.download_file()
+
+        filename = secure_filename(path.split('/')[-1]) or 'download'
+        content_type = mimetypes.guess_type(path)[0] or 'application/octet-stream'
+
+        def generate():
+            for chunk in download_stream.chunks():
+                yield chunk
+
+        response = Response(stream_with_context(generate()), mimetype=content_type)
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        if props.size is not None:
+            response.headers['Content-Length'] = str(props.size)
+        log_activity('file', 'DOWNLOAD_FILE', f"{share}/{path}", 'SUCCESS')
+        return response
+    except Exception as e:
+        log_activity('file', 'DOWNLOAD_FILE', f"{share}/{path}", 'FAILED', details=str(e))
+        flash(f"Error downloading file: {e}")
+        return redirect(url_for('ui.list_files', share=share))
 
 @ui.route('/fileshares/<share>/file-content', methods=['GET'])
 def get_file_content(share):
     if not require_auth():
         return jsonify({"success": False, "error": "Not authenticated"}), 401
 
-    path = request.args.get('path', '').strip('/')
+    path = (request.args.get('path') or request.args.get('filename') or request.args.get('name') or request.args.get('file') or '').strip('/')
     if not path:
         return jsonify({"success": False, "error": "File path required"}), 400
 
     try:
         share_client = get_share_service().get_share_client(share)
         file_client = share_client.get_file_client(path)
+        props = file_client.get_file_properties()
+
+        if props.size > 10 * 1024 * 1024:
+            return jsonify({
+                "success": False,
+                "error": f"File is too large for inline preview ({props.size / (1024*1024):.1f} MB). Please download it instead."
+            }), 400
+
         stream = io.BytesIO()
         file_client.download_file().readinto(stream)
         stream.seek(0)
@@ -2297,9 +2454,10 @@ def get_file_content(share):
 
         try:
             content = raw_bytes.decode('utf-8')
-            return jsonify({"success": True, "content": content, "path": path})
+            return jsonify({"success": True, "content": content, "path": path, "is_text": True})
         except UnicodeDecodeError:
-            return jsonify({"success": False, "error": "Binary file cannot be edited in text editor."}), 400
+            b64_data = base64.b64encode(raw_bytes).decode('utf-8')
+            return jsonify({"success": True, "content": b64_data, "path": path, "is_text": False})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
@@ -2311,7 +2469,7 @@ def save_file_content(share):
         return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
 
     data = request.get_json(silent=True) or request.form
-    path = data.get('path', '').strip('/')
+    path = (data.get('path') or data.get('filename') or data.get('name') or data.get('file') or '').strip('/')
     content = data.get('content')
 
     if not path or content is None:
@@ -2322,7 +2480,7 @@ def save_file_content(share):
         file_client = share_client.get_file_client(path)
         file_client.upload_file(content.encode('utf-8'))
         log_activity('file', 'EDIT_FILE_CONTENT', f"{share}/{path}", 'SUCCESS')
-        return jsonify({"success": True, "message": "Saved successfully"})
+        return jsonify({"success": True, "message": "File saved successfully."})
     except Exception as e:
         log_activity('file', 'EDIT_FILE_CONTENT', f"{share}/{path}", 'FAILED', details=str(e))
         return jsonify({"success": False, "error": str(e)}), 400
@@ -2335,15 +2493,15 @@ def rename_file(share):
         return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
 
     data = request.get_json(silent=True) or request.form
-    old_path = data.get('old_path', '').strip('/')
-    new_name = data.get('new_name', '').strip()
+    old_path = (data.get('old_path') or data.get('old_name') or data.get('filename') or data.get('path') or '').strip('/')
+    new_name = (data.get('new_name') or data.get('new_path') or '').strip()
 
     if not old_path or not new_name:
         return jsonify({"success": False, "error": "Path and new name are required"}), 400
 
     try:
         parent_dir = '/'.join(old_path.split('/')[:-1])
-        new_path = f"{parent_dir}/{new_name}".strip('/')
+        new_path = f"{parent_dir}/{new_name}".strip('/') if parent_dir else new_name
         share_client = get_share_service().get_share_client(share)
         old_client = share_client.get_file_client(old_path)
         new_client = share_client.get_file_client(new_path)
@@ -2365,27 +2523,29 @@ def move_copy_file(share):
         return jsonify({"success": False, "error": "Permission denied. Reader role is read-only."}), 403
 
     data = request.get_json(silent=True) or request.form
-    src_path = data.get('src_path', '').strip('/')
-    dest_share = data.get('dest_share', '').strip()
-    dest_path = data.get('dest_path', '').strip('/')
+    src_path = (data.get('src_path') or data.get('filename') or data.get('source_name') or data.get('path') or '').strip('/')
+    dest_share = (data.get('dest_share') or '').strip()
+    dest_path = (data.get('dest_path') or data.get('dest_filename') or '').strip('/')
     action_type = data.get('action_type', 'copy')
 
     if not src_path or not dest_share:
         return jsonify({"success": False, "error": "Source path and destination share are required"}), 400
 
+    target_dest = dest_path or src_path.split('/')[-1]
+
     try:
         svc = get_share_service()
         src_client = svc.get_share_client(share).get_file_client(src_path)
-        dest_client = svc.get_share_client(dest_share).get_file_client(dest_path or src_path.split('/')[-1])
+        dest_client = svc.get_share_client(dest_share).get_file_client(target_dest)
 
         data = src_client.download_file().readall()
         dest_client.upload_file(data)
         if action_type == 'move':
             src_client.delete_file()
-        log_activity('file', f"{action_type.upper()}_FILE", f"{share}/{src_path} -> {dest_share}/{dest_path}", 'SUCCESS')
+        log_activity('file', f"{action_type.upper()}_FILE", f"{share}/{src_path} -> {dest_share}/{target_dest}", 'SUCCESS')
         return jsonify({"success": True, "message": f"Successfully {'moved' if action_type == 'move' else 'copied'} file."})
     except Exception as e:
-        log_activity('file', f"{action_type.upper()}_FILE", f"{share}/{src_path} -> {dest_share}/{dest_path}", 'FAILED', details=str(e))
+        log_activity('file', f"{action_type.upper()}_FILE", f"{share}/{src_path} -> {dest_share}/{target_dest}", 'FAILED', details=str(e))
         return jsonify({"success": False, "error": str(e)}), 400
 
 @ui.route('/fileshares/<share>/delete', methods=['POST'])
@@ -2396,9 +2556,13 @@ def delete_file(share):
         flash("Permission denied. Reader role is read-only.")
         return redirect(url_for('ui.list_files', share=share))
         
-    path = request.form.get('path', '').strip('/')
+    path = (request.form.get('path') or request.form.get('name') or request.form.get('filename') or request.form.get('file') or '').strip('/')
     is_dir = request.form.get('is_directory') == 'true'
     current_path = request.form.get('current_path', '').strip('/')
+
+    if not path:
+        flash("Path is required to delete.")
+        return redirect(url_for('ui.list_files', share=share, path=current_path))
 
     share_client = get_share_service().get_share_client(share)
 
@@ -2412,10 +2576,11 @@ def delete_file(share):
             log_activity('file', 'DELETE_FILE', f"{share}/{path}", 'SUCCESS')
             flash(f"File '{path}' deleted.")
     except Exception as e:
-        log_activity('file', 'DELETE_FILE', f"{share}/{path}", 'FAILED', details=str(e))
+        log_activity('file', 'DELETE_FILE' if not is_dir else 'DELETE_DIRECTORY', f"{share}/{path}", 'FAILED', details=str(e))
         flash(f"Error deleting: {e}")
 
-    return redirect(url_for('ui.list_files', share=share, path=current_path))
+    parent_path = '/'.join(path.split('/')[:-1]) or current_path
+    return redirect(url_for('ui.list_files', share=share, path=parent_path))
 
 # -----------------------
 # Queues Routes
@@ -2445,6 +2610,7 @@ def create_queue():
     name = request.form.get('name') or request.form.get('queue_name')
     try:
         get_queue_service().create_queue(name)
+        invalidate_sidebar_cache()
         log_activity('queue', 'CREATE_QUEUE', name, 'SUCCESS')
         flash(f"Queue '{name}' created.")
     except Exception as e:
@@ -2463,6 +2629,7 @@ def delete_queue():
     name = request.form.get('queue_name')
     try:
         get_queue_service().delete_queue(name)
+        invalidate_sidebar_cache()
         log_activity('queue', 'DELETE_QUEUE', name, 'SUCCESS')
         flash(f"Queue '{name}' deleted.")
     except Exception as e:
@@ -2936,6 +3103,7 @@ def create_table():
     name = request.form.get('name') or request.form.get('table_name')
     try:
         get_table_service().create_table(name)
+        invalidate_sidebar_cache()
         log_activity('table', 'CREATE_TABLE', name, 'SUCCESS')
         flash(f"Table '{name}' created.")
     except Exception as e:
@@ -2958,6 +3126,7 @@ def delete_table():
         
     try:
         get_table_service().delete_table(name)
+        invalidate_sidebar_cache()
         log_activity('table', 'DELETE_TABLE', name, 'SUCCESS')
         flash(f"Table '{name}' deleted.")
     except Exception as e:
