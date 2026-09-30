@@ -58,7 +58,7 @@
             </div>
         </div>
 
-        <!-- Search Bar & Bulk Actions Zone -->
+        <!-- Search Bar & Date Filter Zone -->
         <div class="service-search-bulk-row">
             <!-- Server-Side Container-Wide Search Form -->
             <form id="blobSearchForm" method="GET" action="{{ url_for('ui.view_blobs', container_name=container_name) }}" class="service-search-form">
@@ -84,26 +84,44 @@
                 </div>
             </form>
 
-            <!-- Dynamic Bulk Actions Toolbar -->
-            <div id="bulkActionsToolbar" class="bulk-actions-toolbar service-bulk-actions" style="display: none;">
-                <span class="badge badge-blue font-mono" id="selectedCountBadge">0 selected</span>
-                <!-- Download Selection (Single or ZIP) -->
-                <button type="button" id="btnDownloadSelected" class="btn btn-neutral btn-sm" onclick="downloadSelectedBlobs('{{ container_name }}')" style="display: flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-download"></i>
-                    <span>Download File</span>
-                </button>
-                {% if user_role != 'reader' %}
-                <!-- Delete Selection (Modal confirmation) -->
-                <button type="button" class="btn btn-danger btn-sm" onclick="openBulkDeleteBlobsModal()" style="display: flex; align-items: center; gap: 6px;">
-                    <i class="fa-solid fa-trash-can"></i>
-                    <span>Delete Selected</span>
-                </button>
+            <!-- Date Range Filter Form (Next to Search Form) -->
+            <form id="blobDateFilterForm" method="GET" action="{{ url_for('ui.view_blobs', container_name=container_name) }}" 
+                  class="date-filter-group service-bulk-actions">
+                <input type="hidden" name="limit" value="{{ limit }}">
+                <input type="hidden" name="sort" value="{{ sort_by }}">
+                <input type="hidden" name="order" value="{{ sort_order }}">
+                {% if search_query %}
+                <input type="hidden" name="q" value="{{ search_query }}">
                 {% endif %}
-                <!-- Deselect All -->
-                <button type="button" class="btn btn-neutral btn-sm" onclick="deselectAllBlobs()" title="Deselect all">
-                    <i class="fa-solid fa-xmark"></i>
+
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;">From:</span>
+                    <input type="date" name="from_date" id="blobFromDate" value="{{ from_date or '' }}" title="Show blobs modified on or after this date">
+                </div>
+                <div style="display: flex; align-items: center; gap: 5px;">
+                    <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;">To:</span>
+                    <input type="date" name="to_date" id="blobToDate" value="{{ to_date or '' }}" title="Show blobs modified on or before this date">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm" style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; font-size: 11.5px;">
+                    <i class="fa-solid fa-filter"></i>
+                    <span>Show Blobs</span>
                 </button>
-            </div>
+                <button type="button" class="btn btn-neutral btn-sm" onclick="clearBlobDateFilter('{{ container_name }}')" 
+                        title="Clear date filter" style="display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; font-size: 11.5px;">
+                    <i class="fa-solid fa-xmark"></i>
+                    <span>Clear</span>
+                </button>
+                {% if from_date or to_date %}
+                <!-- Direct Option to Download all Blobs for Selected Date Range as ZIP -->
+                <a href="{{ url_for('ui.download_all_blobs', container_name=container_name, from_date=from_date, to_date=to_date, q=search_query) }}" 
+                   class="btn btn-neutral btn-sm" 
+                   style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; font-size: 11.5px; border-color: rgba(59, 130, 246, 0.4); color: #60a5fa; background: rgba(59, 130, 246, 0.08);" 
+                   title="Download all {{ total_items }} blobs for selected date range as a ZIP archive">
+                    <i class="fa-solid fa-file-zipper"></i>
+                    <span>Download Date Range ZIP ({{ total_items }})</span>
+                </a>
+                {% endif %}
+            </form>
         </div>
 
         {% if search_query %}
@@ -115,7 +133,7 @@
         </div>
         {% endif %}
 
-        <!-- Toolbar (Multi-file Upload with Progress, Virtual Folders & Date Filter) -->
+        <!-- Toolbar (Multi-file Upload with Progress, Virtual Folders & Selection Actions) -->
         <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-direction: column; gap: 12px;">
             <div class="service-toolbar-row">
                 {% if user_role != 'reader' %}
@@ -146,44 +164,26 @@
                 </div>
                 {% endif %}
 
-                <!-- Date Range Filter Form (Right of Upload Files) -->
-                <form id="blobDateFilterForm" method="GET" action="{{ url_for('ui.view_blobs', container_name=container_name) }}" 
-                      class="date-filter-group service-toolbar-right">
-                    <input type="hidden" name="limit" value="{{ limit }}">
-                    <input type="hidden" name="sort" value="{{ sort_by }}">
-                    <input type="hidden" name="order" value="{{ sort_order }}">
-                    {% if search_query %}
-                    <input type="hidden" name="q" value="{{ search_query }}">
-                    {% endif %}
-
-                    <div style="display: flex; align-items: center; gap: 5px;">
-                        <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;">From:</span>
-                        <input type="date" name="from_date" id="blobFromDate" value="{{ from_date or '' }}" title="Show blobs modified on or after this date">
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 5px;">
-                        <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;">To:</span>
-                        <input type="date" name="to_date" id="blobToDate" value="{{ to_date or '' }}" title="Show blobs modified on or before this date">
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-sm" style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; font-size: 11.5px;">
-                        <i class="fa-solid fa-filter"></i>
-                        <span>Show Blobs</span>
+                <!-- Dynamic Bulk Actions Toolbar (Positioned in toolbar card where date filter was) -->
+                <div id="bulkActionsToolbar" class="bulk-actions-toolbar service-toolbar-right" style="display: none; align-items: center; gap: 8px;">
+                    <span class="badge badge-blue font-mono" id="selectedCountBadge">0 selected</span>
+                    <!-- Download Selection (Single or ZIP) -->
+                    <button type="button" id="btnDownloadSelected" class="btn btn-neutral btn-sm" onclick="downloadSelectedBlobs('{{ container_name }}')" style="display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-download"></i>
+                        <span>Download File</span>
                     </button>
-                    <button type="button" class="btn btn-neutral btn-sm" onclick="clearBlobDateFilter('{{ container_name }}')" 
-                            title="Clear date filter" style="display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; font-size: 11.5px;">
+                    {% if user_role != 'reader' %}
+                    <!-- Delete Selection (Modal confirmation) -->
+                    <button type="button" class="btn btn-danger btn-sm" onclick="openBulkDeleteBlobsModal()" style="display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-trash-can"></i>
+                        <span>Delete Selected</span>
+                    </button>
+                    {% endif %}
+                    <!-- Deselect All -->
+                    <button type="button" class="btn btn-neutral btn-sm" onclick="deselectAllBlobs()" title="Deselect all">
                         <i class="fa-solid fa-xmark"></i>
-                        <span>Clear</span>
                     </button>
-                    {% if from_date or to_date %}
-                    <!-- Direct Option to Download all Blobs for Selected Date Range as ZIP -->
-                    <a href="{{ url_for('ui.download_all_blobs', container_name=container_name, from_date=from_date, to_date=to_date, q=search_query) }}" 
-                       class="btn btn-neutral btn-sm" 
-                       style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; font-size: 11.5px; border-color: rgba(59, 130, 246, 0.4); color: #60a5fa; background: rgba(59, 130, 246, 0.08);" 
-                       title="Download all {{ total_items }} blobs for selected date range as a ZIP archive">
-                        <i class="fa-solid fa-file-zipper"></i>
-                        <span>Download Date Range ZIP ({{ total_items }})</span>
-                    </a>
-                    {% endif %}
-                </form>
+                </div>
             </div>
 
             <!-- Upload Progress Bar Container -->
