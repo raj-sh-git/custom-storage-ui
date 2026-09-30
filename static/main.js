@@ -716,11 +716,17 @@ function filterBlobsTable(query) {
     }
 }
 
-function clearBlobSearch() {
+function clearBlobSearch(containerName) {
     const input = document.getElementById('blobSearchInput');
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('q')) {
+        url.searchParams.delete('q');
+        url.searchParams.set('page', '1');
+        window.location.href = url.toString();
+        return;
+    }
     if (input) {
         input.value = '';
-        filterBlobsTable('');
         input.focus();
     }
 }
@@ -729,7 +735,7 @@ function clearBlobSearch() {
 function changeBlobPageSize(containerName, limit) {
     const url = new URL(window.location.href);
     url.searchParams.set('limit', limit);
-    url.searchParams.set('page', 1);
+    url.searchParams.set('page', '1');
     window.location.href = url.toString();
 }
 
@@ -1515,13 +1521,49 @@ function filterQueueMessagesTable(query) {
     }
 }
 
-function clearQueueSearch() {
+function clearQueueSearch(queueName) {
     const input = document.getElementById('queueSearchInput');
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('q')) {
+        url.searchParams.delete('q');
+        url.searchParams.set('page', '1');
+        window.location.href = url.toString();
+        return;
+    }
     if (input) {
         input.value = '';
         filterQueueMessagesTable('');
         input.focus();
     }
+}
+
+function clearQueueListSearch() {
+    const input = document.getElementById('queueListSearchInput');
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('q')) {
+        url.searchParams.delete('q');
+        url.searchParams.set('page', '1');
+        window.location.href = url.toString();
+        return;
+    }
+    if (input) {
+        input.value = '';
+        input.focus();
+    }
+}
+
+function changeQueuePageSize(queueName, limit) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('limit', limit);
+    url.searchParams.set('page', '1');
+    window.location.href = url.toString();
+}
+
+function changeQueueListPageSize(limit) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('limit', limit);
+    url.searchParams.set('page', '1');
+    window.location.href = url.toString();
 }
 
 // =========================================================================

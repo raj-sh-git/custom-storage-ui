@@ -252,6 +252,62 @@
                 </tbody>
             </table>
         </div>
+
+        <!-- Message Browser Pagination Controls Bar -->
+        {% if (total_items or 0) > 0 %}
+        <div class="pagination-bar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border-color);">
+            <!-- Page Size Selector -->
+            <div class="page-size-selector" style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 12px; color: var(--text-muted);">Show:</span>
+                <select class="db-select" style="height: 32px; padding: 4px 10px; font-size: 12px; border-radius: 6px;" onchange="changeQueuePageSize('{{ current_queue }}', this.value)">
+                    <option value="10" {% if limit == 10 %}selected{% endif %}>10 rows</option>
+                    <option value="15" {% if limit == 15 %}selected{% endif %}>15 rows</option>
+                    <option value="20" {% if limit == 20 %}selected{% endif %}>20 rows</option>
+                    <option value="50" {% if limit == 50 %}selected{% endif %}>50 rows</option>
+                    <option value="100" {% if limit == 100 %}selected{% endif %}>100 rows</option>
+                </select>
+            </div>
+
+            <!-- Pagination Counter Summary -->
+            <div class="pagination-info" style="font-size: 12.5px; color: var(--text-muted);">
+                Showing <strong>{{ page_start }}</strong> - <strong>{{ page_end }}</strong> of <strong>{{ total_items }}</strong> messages (Page {{ page }} of {{ total_pages }})
+            </div>
+
+            <!-- Page Navigation Controls -->
+            <div class="pagination-controls" style="display: flex; align-items: center; gap: 6px;">
+                <!-- Prev Page -->
+                <a href="{% if page > 1 %}{{ url_for('ui.view_queue', queue=current_queue, page=page-1, limit=limit, q=search_query, sort=sort_by, order=order, from_date=from_date, to_date=to_date) }}{% else %}javascript:void(0){% endif %}" 
+                   class="btn btn-neutral btn-sm {% if page <= 1 %}disabled{% endif %}" 
+                   style="padding: 4px 10px; font-size: 12px; {% if page <= 1 %}opacity: 0.5; pointer-events: none;{% endif %}"
+                   title="Previous Page">
+                    <i class="fa-solid fa-angle-left"></i>
+                </a>
+
+                <!-- Numbered Pages -->
+                <div class="page-links" style="display: flex; gap: 4px;">
+                    {% for p in range(1, total_pages + 1) %}
+                        {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+                            <a href="{{ url_for('ui.view_queue', queue=current_queue, page=p, limit=limit, q=search_query, sort=sort_by, order=order, from_date=from_date, to_date=to_date) }}" 
+                                class="btn btn-sm {% if page == p %}btn-primary{% else %}btn-neutral{% endif %}"
+                                style="padding: 4px 10px; font-size: 12px; min-width: 32px; text-align: center; {% if page == p %}background-color: var(--success); border-color: var(--success);{% endif %}">
+                                {{ p }}
+                            </a>
+                        {% elif p == 2 or p == total_pages - 1 %}
+                            <span class="pagination-ellipsis" style="padding: 4px 6px; color: var(--text-muted); font-size: 12px;">...</span>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+
+                <!-- Next Page -->
+                <a href="{% if page < total_pages %}{{ url_for('ui.view_queue', queue=current_queue, page=page+1, limit=limit, q=search_query, sort=sort_by, order=order, from_date=from_date, to_date=to_date) }}{% else %}javascript:void(0){% endif %}" 
+                   class="btn btn-neutral btn-sm {% if page >= total_pages %}disabled{% endif %}" 
+                   style="padding: 4px 10px; font-size: 12px; {% if page >= total_pages %}opacity: 0.5; pointer-events: none;{% endif %}"
+                   title="Next Page">
+                    <i class="fa-solid fa-angle-right"></i>
+                </a>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     {% else %}
@@ -277,6 +333,25 @@
                 </button>
             </form>
             {% endif %}
+        </div>
+
+        <!-- Search & Filter Bar for Queues List -->
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+            <form id="queueListSearchForm" method="GET" action="{{ url_for('ui.queues') }}" style="flex: 1; min-width: 240px; max-width: 400px;">
+                <input type="hidden" name="limit" value="{{ limit }}">
+                <input type="hidden" name="sort" value="{{ sort_by }}">
+                <input type="hidden" name="order" value="{{ sort_order }}">
+                <div class="search-input-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" name="q" id="queueListSearchInput" value="{{ search_query or '' }}" 
+                           placeholder="Search queues by name..." autocomplete="off">
+                    {% if search_query %}
+                    <button type="button" class="btn-clear-search" style="display: inline-block;" onclick="clearQueueListSearch()" title="Clear search">
+                        <i class="fa-solid fa-circle-xmark"></i>
+                    </button>
+                    {% endif %}
+                </div>
+            </form>
         </div>
 
         <!-- Table Listing -->
@@ -320,6 +395,62 @@
                 </tbody>
             </table>
         </div>
+
+        <!-- Queues List Pagination Controls Bar -->
+        {% if (total_items or 0) > 0 %}
+        <div class="pagination-bar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border-color);">
+            <!-- Page Size Selector -->
+            <div class="page-size-selector" style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 12px; color: var(--text-muted);">Show:</span>
+                <select class="db-select" style="height: 32px; padding: 4px 10px; font-size: 12px; border-radius: 6px;" onchange="changeQueueListPageSize(this.value)">
+                    <option value="10" {% if limit == 10 %}selected{% endif %}>10 rows</option>
+                    <option value="15" {% if limit == 15 %}selected{% endif %}>15 rows</option>
+                    <option value="20" {% if limit == 20 %}selected{% endif %}>20 rows</option>
+                    <option value="50" {% if limit == 50 %}selected{% endif %}>50 rows</option>
+                    <option value="100" {% if limit == 100 %}selected{% endif %}>100 rows</option>
+                </select>
+            </div>
+
+            <!-- Pagination Counter Summary -->
+            <div class="pagination-info" style="font-size: 12.5px; color: var(--text-muted);">
+                Showing <strong>{{ page_start }}</strong> - <strong>{{ page_end }}</strong> of <strong>{{ total_items }}</strong> queues (Page {{ page }} of {{ total_pages }})
+            </div>
+
+            <!-- Page Navigation Controls -->
+            <div class="pagination-controls" style="display: flex; align-items: center; gap: 6px;">
+                <!-- Prev Page -->
+                <a href="{% if page > 1 %}{{ url_for('ui.queues', page=page-1, limit=limit, q=search_query, sort=sort_by, order=sort_order) }}{% else %}javascript:void(0){% endif %}" 
+                   class="btn btn-neutral btn-sm {% if page <= 1 %}disabled{% endif %}" 
+                   style="padding: 4px 10px; font-size: 12px; {% if page <= 1 %}opacity: 0.5; pointer-events: none;{% endif %}"
+                   title="Previous Page">
+                    <i class="fa-solid fa-angle-left"></i>
+                </a>
+
+                <!-- Numbered Pages -->
+                <div class="page-links" style="display: flex; gap: 4px;">
+                    {% for p in range(1, total_pages + 1) %}
+                        {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+                            <a href="{{ url_for('ui.queues', page=p, limit=limit, q=search_query, sort=sort_by, order=sort_order) }}" 
+                                class="btn btn-sm {% if page == p %}btn-primary{% else %}btn-neutral{% endif %}"
+                                style="padding: 4px 10px; font-size: 12px; min-width: 32px; text-align: center; {% if page == p %}background-color: var(--success); border-color: var(--success);{% endif %}">
+                                {{ p }}
+                            </a>
+                        {% elif p == 2 or p == total_pages - 1 %}
+                            <span class="pagination-ellipsis" style="padding: 4px 6px; color: var(--text-muted); font-size: 12px;">...</span>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+
+                <!-- Next Page -->
+                <a href="{% if page < total_pages %}{{ url_for('ui.queues', page=page+1, limit=limit, q=search_query, sort=sort_by, order=sort_order) }}{% else %}javascript:void(0){% endif %}" 
+                   class="btn btn-neutral btn-sm {% if page >= total_pages %}disabled{% endif %}" 
+                   style="padding: 4px 10px; font-size: 12px; {% if page >= total_pages %}opacity: 0.5; pointer-events: none;{% endif %}"
+                   title="Next Page">
+                    <i class="fa-solid fa-angle-right"></i>
+                </a>
+            </div>
+        </div>
+        {% endif %}
     </div>
     {% endif %}
 </div>

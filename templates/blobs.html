@@ -28,10 +28,17 @@
                     <i class="fa-solid fa-file-circle-plus"></i> New File
                 </button>
                 {% endif %}
+                {% if from_date or to_date or search_query %}
+                <!-- Download Filtered as ZIP -->
+                <a href="{{ url_for('ui.download_all_blobs', container_name=container_name, from_date=from_date, to_date=to_date, q=search_query) }}" class="btn btn-neutral btn-sm" title="Download all {{ total_items }} filtered blobs as a ZIP archive" style="display: flex; align-items: center; gap: 6px; border-color: rgba(59, 130, 246, 0.4); color: #60a5fa;">
+                    <i class="fa-solid fa-file-zipper"></i> Download Filtered ({{ total_items }})
+                </a>
+                {% else %}
                 <!-- Download All as ZIP -->
                 <a href="{{ url_for('ui.download_all_blobs', container_name=container_name) }}" class="btn btn-neutral btn-sm" title="Download all blobs in this container as a ZIP archive" style="display: flex; align-items: center; gap: 6px;">
                     <i class="fa-solid fa-file-zipper"></i> Download All
                 </a>
+                {% endif %}
                 {% if user_role != 'reader' %}
                 <!-- Empty Container (Purge all blobs with modal confirmation) -->
                 <button type="button" class="btn btn-neutral btn-sm" onclick="openEmptyContainerModal()" title="Delete all blobs inside this container" style="border-color: rgba(239, 68, 68, 0.4); color: #f87171; display: flex; align-items: center; gap: 6px;">
@@ -53,20 +60,29 @@
 
         <!-- Search Bar & Bulk Actions Zone -->
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
-            <!-- Instant Search Input -->
-            <div style="flex: 1; min-width: 260px; max-width: 450px;">
-                <div class="search-input-wrapper">
+            <!-- Server-Side Container-Wide Search Form -->
+            <form id="blobSearchForm" method="GET" action="{{ url_for('ui.view_blobs', container_name=container_name) }}" style="flex: 1; min-width: 260px; max-width: 450px;">
+                <input type="hidden" name="limit" value="{{ limit }}">
+                <input type="hidden" name="sort" value="{{ sort_by }}">
+                <input type="hidden" name="order" value="{{ sort_order }}">
+                {% if from_date %}<input type="hidden" name="from_date" value="{{ from_date }}">{% endif %}
+                {% if to_date %}<input type="hidden" name="to_date" value="{{ to_date }}">{% endif %}
+                <div class="search-input-wrapper" style="position: relative;">
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                    <input type="text" id="blobSearchInput" value="{{ search_query or '' }}" 
-                           placeholder="Search blobs by name or path..." 
-                           oninput="filterBlobsTable(this.value)">
+                    <input type="text" name="q" id="blobSearchInput" value="{{ search_query or '' }}" 
+                           placeholder="Search all blobs in container (Press Enter)..." autocomplete="off" style="padding-right: 65px;">
+                    <button type="submit" class="btn-search-submit" title="Search entire container" style="position: absolute; right: {% if search_query %}32px{% else %}10px{% endif %}; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px;">
+                        <i class="fa-solid fa-arrow-right" style="font-size: 12px;"></i>
+                    </button>
+                    {% if search_query %}
                     <button type="button" id="btnClearSearch" class="btn-clear-search" 
-                            style="display: {% if search_query %}inline-block{% else %}none{% endif %};" 
-                            onclick="clearBlobSearch()" title="Clear search">
+                            style="display: inline-block;" 
+                            onclick="clearBlobSearch('{{ container_name }}')" title="Clear search">
                         <i class="fa-solid fa-circle-xmark"></i>
                     </button>
+                    {% endif %}
                 </div>
-            </div>
+            </form>
 
             <!-- Dynamic Bulk Actions Toolbar -->
             <div id="bulkActionsToolbar" class="bulk-actions-toolbar" style="display: none; align-items: center; gap: 8px;">
@@ -89,6 +105,15 @@
                 </button>
             </div>
         </div>
+
+        {% if search_query %}
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-muted); margin-top: -6px;">
+            <span><i class="fa-solid fa-filter" style="color: var(--accent-blue); margin-right: 4px;"></i> Search filter active across container: <strong style="color: var(--text-white);">"{{ search_query }}"</strong> ({{ total_items }} blobs found)</span>
+            <a href="{{ url_for('ui.view_blobs', container_name=container_name, limit=limit, sort=sort_by, order=sort_order, from_date=from_date, to_date=to_date) }}" style="color: #f87171; text-decoration: none; font-size: 11.5px; display: inline-flex; align-items: center; gap: 3px;">
+                <i class="fa-solid fa-xmark"></i> Clear Search
+            </a>
+        </div>
+        {% endif %}
 
         <!-- Toolbar (Multi-file Upload with Progress, Virtual Folders & Date Filter) -->
         <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-direction: column; gap: 12px;">
@@ -148,6 +173,16 @@
                         <i class="fa-solid fa-xmark"></i>
                         <span>Clear</span>
                     </button>
+                    {% if from_date or to_date %}
+                    <!-- Direct Option to Download all Blobs for Selected Date Range as ZIP -->
+                    <a href="{{ url_for('ui.download_all_blobs', container_name=container_name, from_date=from_date, to_date=to_date, q=search_query) }}" 
+                       class="btn btn-neutral btn-sm" 
+                       style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; font-size: 11.5px; border-color: rgba(59, 130, 246, 0.4); color: #60a5fa; background: rgba(59, 130, 246, 0.08);" 
+                       title="Download all {{ total_items }} blobs for selected date range as a ZIP archive">
+                        <i class="fa-solid fa-file-zipper"></i>
+                        <span>Download Date Range ZIP ({{ total_items }})</span>
+                    </a>
+                    {% endif %}
                 </form>
             </div>
 

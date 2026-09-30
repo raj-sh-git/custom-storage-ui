@@ -1740,6 +1740,9 @@ def view_blobs(container_name):
     end_idx = start_idx + limit
     paginated_blobs = filtered_blobs[start_idx:end_idx]
 
+    page_start = start_idx + 1 if total_items > 0 else 0
+    page_end = min(end_idx, total_items)
+
     tree = load_sidebar_tree()
     return render_template(
         'blobs.html',
@@ -1751,7 +1754,10 @@ def view_blobs(container_name):
         total_pages=total_pages,
         limit=limit,
         total_items=total_items,
+        page_start=page_start,
+        page_end=page_end,
         sort_by=sort_by,
+        sort_order=order,
         order=order,
         from_date=from_date,
         to_date=to_date,
@@ -2057,9 +2063,50 @@ def download_selected_blobs(container_name):
     return send_file(zip_buffer, mimetype='application/zip', download_name=zip_filename, as_attachment=True)
 
 @ui.route('/blobs/<container_name>/download-all')
+@ui.route('/blobs/<container_name>/download-filtered')
 def download_all_blobs(container_name):
     if not require_auth():
         return redirect(url_for('ui.login'))
+
+    from_date = request.args.get('from_date', '').strip()
+    to_date = request.args.get('to_date', '').strip()
+    search_query = request.args.get('q', '').strip()
+
+    from_dt = None
+    to_dt = None
+    if from_date:
+        try:
+            from_dt = datetime.strptime(from_date, "%Y-%m-%d").date()
+        except Exception:
+            pass
+    if to_date:
+        try:
+            to_dt = datetime.strptime(to_date, "%Y-%m-%d").date()
+        except Exception:
+            pass
+
+    try:
+        raw_blobs = get_container_blobs_cached(container_name)
+    except Exception as e:
+        flash(f"Error reading blobs: {e}")
+        return redirect(url_for('ui.view_blobs', container_name=container_name))
+
+    filtered_blobs = []
+    for b in raw_blobs:
+        if search_query and search_query.lower() not in b.name.lower():
+            continue
+        if from_dt or to_dt:
+            if b.last_modified:
+                b_date = b.last_modified.date()
+                if from_dt and b_date < from_dt:
+                    continue
+                if to_dt and b_date > to_dt:
+                    continue
+        filtered_blobs.append(b)
+
+    if not filtered_blobs:
+        flash("No blobs matched the selected date range or filter to download.")
+        return redirect(url_for('ui.view_blobs', container_name=container_name, from_date=from_date, to_date=to_date, q=search_query))
 
     service = get_blob_service()
     container_client = service.get_container_client(container_name)
@@ -2067,23 +2114,42 @@ def download_all_blobs(container_name):
     zip_buffer = io.BytesIO()
     count = 0
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        for blob in container_client.list_blobs():
+        for b in filtered_blobs:
             try:
-                blob_client = container_client.get_blob_client(blob.name)
+                blob_client = container_client.get_blob_client(b.name)
                 blob_data = blob_client.download_blob().readall()
-                zip_path = blob.name.lstrip('/')
+                zip_path = b.name.lstrip('/')
                 zip_file.writestr(zip_path, blob_data)
                 count += 1
             except Exception as e:
-                print(f"Failed to add {blob.name} to zip: {e}")
+                print(f"Failed to add {b.name} to zip: {e}")
 
     if count == 0:
-        flash("No blobs available to download in this container.")
-        return redirect(url_for('ui.view_blobs', container_name=container_name))
+        flash("Failed to download blobs.")
+        return redirect(url_for('ui.view_blobs', container_name=container_name, from_date=from_date, to_date=to_date, q=search_query))
 
     zip_buffer.seek(0)
-    zip_filename = f"{secure_filename(container_name)}_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-    log_activity('blob', 'DOWNLOAD_ALL_ZIP', container_name, 'SUCCESS', details=f"Downloaded {count} blobs as ZIP")
+    suffix = ""
+    if from_date and to_date:
+        suffix = f"_dates_{from_date}_to_{to_date}"
+    elif from_date:
+        suffix = f"_from_{from_date}"
+    elif to_date:
+        suffix = f"_to_{to_date}"
+    elif search_query:
+        suffix = f"_search_{secure_filename(search_query)}"
+    else:
+        suffix = "_all"
+
+    zip_filename = f"{secure_filename(container_name)}{suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    is_filtered = bool(from_dt or to_dt or search_query)
+    log_activity(
+        'blob',
+        'DOWNLOAD_FILTERED_ZIP' if is_filtered else 'DOWNLOAD_ALL_ZIP',
+        container_name,
+        'SUCCESS',
+        details=f"Downloaded {count} blobs as ZIP" + (f" (Dates: {from_date} to {to_date})" if (from_date or to_date) else "")
+    )
     return send_file(zip_buffer, mimetype='application/zip', download_name=zip_filename, as_attachment=True)
 
 @ui.route('/blobs/<container_name>/empty', methods=['POST'])
@@ -2590,14 +2656,72 @@ def queues():
     if not require_auth():
         return redirect(url_for('ui.login'))
 
+    search_query = request.args.get('q', '').strip()
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+    try:
+        limit = int(request.args.get('limit', 20))
+        if limit not in [10, 15, 20, 50, 100]:
+            limit = 20
+    except ValueError:
+        limit = 20
+
+    sort_by = request.args.get('sort', 'name').strip().lower()
+    order = request.args.get('order', 'asc').strip().lower()
+
     try:
         queue_list = list(get_queue_service().list_queues())
     except Exception as e:
         flash(f"Error loading queues: {e}")
         queue_list = []
 
+    filtered_queues = []
+    for q in queue_list:
+        q_name = getattr(q, 'name', '') or (q.get('name') if isinstance(q, dict) else str(q))
+        if search_query and search_query.lower() not in q_name.lower():
+            continue
+        filtered_queues.append(q)
+
+    reverse = (order == 'desc')
+    filtered_queues.sort(
+        key=lambda q: (getattr(q, 'name', '') or (q.get('name') if isinstance(q, dict) else str(q))).lower(),
+        reverse=reverse
+    )
+
+    total_items = len(filtered_queues)
+    total_pages = max(1, math.ceil(total_items / limit))
+    if page > total_pages:
+        page = total_pages
+
+    start_idx = (page - 1) * limit
+    end_idx = start_idx + limit
+    paginated_queues = filtered_queues[start_idx:end_idx]
+
+    page_start = start_idx + 1 if total_items > 0 else 0
+    page_end = min(end_idx, total_items)
+
     tree = load_sidebar_tree()
-    return render_template('queues.html', queues=queue_list, queue_name=None, sidebar_tree=tree, active_service='queues', active_item=None)
+    return render_template(
+        'queues.html',
+        queues=paginated_queues,
+        queue_name=None,
+        queue=None,
+        sidebar_tree=tree,
+        active_service='queues',
+        active_item=None,
+        search_query=search_query,
+        page=page,
+        total_pages=total_pages,
+        limit=limit,
+        total_items=total_items,
+        page_start=page_start,
+        page_end=page_end,
+        sort_by=sort_by,
+        sort_order=order,
+        order=order
+    )
 
 @ui.route('/queues/create', methods=['POST'])
 def create_queue():
@@ -2781,6 +2905,9 @@ def view_queue(queue):
     end_idx = start_idx + limit
     paginated_msgs = filtered_msgs[start_idx:end_idx]
 
+    page_start = start_idx + 1 if total_items > 0 else 0
+    page_end = min(end_idx, total_items)
+
     tree = load_sidebar_tree()
     all_queues = tree.get('queues', [])
     return render_template(
@@ -2794,7 +2921,10 @@ def view_queue(queue):
         total_pages=total_pages,
         limit=limit,
         total_items=total_items,
+        page_start=page_start,
+        page_end=page_end,
         sort_by=sort_by,
+        sort_order=order,
         order=order,
         from_date=from_date,
         to_date=to_date,
