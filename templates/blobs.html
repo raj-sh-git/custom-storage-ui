@@ -11,17 +11,17 @@
     <!-- File Browser State -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
         <!-- Header -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; flex-wrap: wrap; gap: 12px;">
-            <div>
-                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+        <div class="service-header-row">
+            <div class="service-header-left">
+                <h3 class="service-header-title">
                     <i class="fa-solid fa-folder-open" style="color: var(--accent-blue);"></i>
                     Container: {{ container_name }}
                 </h3>
-                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                <p class="service-header-subtitle">
                     Manage, edit, search, and upload blobs in batch with live progress tracking. Total files: <strong>{{ total_items }}</strong>
                 </p>
             </div>
-            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <div class="service-header-actions">
                 {% if user_role != 'reader' %}
                 <!-- Create New File -->
                 <button type="button" class="btn btn-primary btn-sm" onclick="openCreateBlobModal('{{ container_name }}')" style="display: flex; align-items: center; gap: 6px;">
@@ -59,9 +59,9 @@
         </div>
 
         <!-- Search Bar & Bulk Actions Zone -->
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+        <div class="service-search-bulk-row">
             <!-- Server-Side Container-Wide Search Form -->
-            <form id="blobSearchForm" method="GET" action="{{ url_for('ui.view_blobs', container_name=container_name) }}" style="flex: 1; min-width: 260px; max-width: 450px;">
+            <form id="blobSearchForm" method="GET" action="{{ url_for('ui.view_blobs', container_name=container_name) }}" class="service-search-form">
                 <input type="hidden" name="limit" value="{{ limit }}">
                 <input type="hidden" name="sort" value="{{ sort_by }}">
                 <input type="hidden" name="order" value="{{ sort_order }}">
@@ -85,7 +85,7 @@
             </form>
 
             <!-- Dynamic Bulk Actions Toolbar -->
-            <div id="bulkActionsToolbar" class="bulk-actions-toolbar" style="display: none; align-items: center; gap: 8px;">
+            <div id="bulkActionsToolbar" class="bulk-actions-toolbar service-bulk-actions" style="display: none;">
                 <span class="badge badge-blue font-mono" id="selectedCountBadge">0 selected</span>
                 <!-- Download Selection (Single or ZIP) -->
                 <button type="button" id="btnDownloadSelected" class="btn btn-neutral btn-sm" onclick="downloadSelectedBlobs('{{ container_name }}')" style="display: flex; align-items: center; gap: 6px;">
@@ -117,13 +117,13 @@
 
         <!-- Toolbar (Multi-file Upload with Progress, Virtual Folders & Date Filter) -->
         <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-direction: column; gap: 12px;">
-            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;">
+            <div class="service-toolbar-row">
                 {% if user_role != 'reader' %}
                 <!-- Multi-file Upload Form with Async Progress -->
                 <form id="blobUploadForm" method="POST" enctype="multipart/form-data" 
                       action="{{ url_for('ui.view_blobs', container_name=container_name) }}"
                       onsubmit="uploadBlobsWithProgress(event, this, '{{ container_name }}')"
-                      style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                      class="service-toolbar-left">
                     <button type="button" class="btn btn-primary btn-sm" onclick="openCreateBlobModal('{{ container_name }}')" style="display: flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-file-circle-plus"></i> New File
                     </button>
@@ -135,20 +135,20 @@
                         <i class="fa-solid fa-file-circle-plus"></i> Choose Files
                         <input type="file" name="files" multiple style="display: none;" onchange="updateFilesNameDisplay(this, 'blobUploadNamePreview')">
                     </label>
-                    <span id="blobUploadNamePreview" style="font-size: 12px; color: var(--text-muted); font-weight: 500;">No files chosen</span>
+                    <span id="blobUploadNamePreview" class="file-name-preview">No files chosen</span>
                     <button type="submit" class="btn btn-primary btn-sm">
                         <i class="fa-solid fa-cloud-arrow-up"></i> Upload Files
                     </button>
                 </form>
                 {% else %}
-                <div style="font-size: 12px; color: var(--text-muted); font-style: italic;">
+                <div class="service-toolbar-left view-only-text">
                     <i class="fa-solid fa-eye" style="margin-right: 4px;"></i> View-only reader mode
                 </div>
                 {% endif %}
 
                 <!-- Date Range Filter Form (Right of Upload Files) -->
                 <form id="blobDateFilterForm" method="GET" action="{{ url_for('ui.view_blobs', container_name=container_name) }}" 
-                      style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" class="date-filter-group">
+                      class="date-filter-group service-toolbar-right">
                     <input type="hidden" name="limit" value="{{ limit }}">
                     <input type="hidden" name="sort" value="{{ sort_by }}">
                     <input type="hidden" name="order" value="{{ sort_order }}">
@@ -393,16 +393,16 @@
     <!-- Containers List State -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
         <!-- Containers Table Header Toolbar -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; flex-wrap: wrap; gap: 12px;">
-            <div>
-                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white);">
-                    <i class="fa-solid fa-database" style="color: var(--primary); margin-right: 8px;"></i>
+        <div class="service-header-row">
+            <div class="service-header-left">
+                <h3 class="service-header-title">
+                    <i class="fa-solid fa-database" style="color: var(--primary);"></i>
                     Blob Containers
                 </h3>
-                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Containers partition blobs inside your storage account. Create, inspect, or delete them.</p>
+                <p class="service-header-subtitle">Containers partition blobs inside your storage account. Create, inspect, or delete them.</p>
             </div>
             <!-- In-line create container form -->
-            <form method="POST" action="{{ url_for('ui.create_container') }}" style="display: flex; align-items: center; gap: 8px;">
+            <form method="POST" action="{{ url_for('ui.create_container') }}" class="service-header-form">
                 <div class="input-icon-group">
                     <i class="fa-solid fa-tag icon-inside" style="font-size: 13px; top: 12px;"></i>
                     <input type="text" name="container_name" required placeholder="new-container-name" style="width: 200px; padding-left: 36px; height: 38px;">

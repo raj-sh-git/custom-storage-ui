@@ -13,17 +13,17 @@
     <!-- Queue Message Browser State -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
         <!-- Header -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; flex-wrap: wrap; gap: 12px;">
-            <div>
-                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+        <div class="service-header-row">
+            <div class="service-header-left">
+                <h3 class="service-header-title">
                     <i class="fa-solid fa-list-ol" style="color: var(--success);"></i>
                     Queue: {{ current_queue }}
                 </h3>
-                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                <p class="service-header-subtitle">
                     Inspect visible messages (Peek), select & dequeue, edit payloads, or transfer messages across queues. Visible: <strong>{{ messages|length }}</strong>
                 </p>
             </div>
-            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <div class="service-header-actions">
                 {% if user_role != 'reader' %}
                 <!-- Enqueue Message Action -->
                 <button type="button" class="btn btn-primary btn-sm" onclick="openEnqueueModal('{{ current_queue }}')" style="background-color: var(--success); border-color: var(--success); display: flex; align-items: center; gap: 6px;">
@@ -48,9 +48,9 @@
         </div>
 
         <!-- Search Bar, Date Filter & Dynamic Bulk Actions Zone -->
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+        <div class="service-search-bulk-row">
             <!-- Instant Search Input -->
-            <div style="flex: 1; min-width: 240px; max-width: 380px;">
+            <div class="service-search-wrapper">
                 <div class="search-input-wrapper">
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
                     <input type="text" id="queueSearchInput" 
@@ -66,7 +66,7 @@
 
             <!-- Date Range Filter Form (Right side) -->
             <form id="queueDateFilterForm" method="GET" action="{{ url_for('ui.view_queue', queue=current_queue) }}" 
-                  style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" class="date-filter-group">
+                  class="date-filter-group service-toolbar-right">
                 <div style="display: flex; align-items: center; gap: 5px;">
                     <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;">From:</span>
                     <input type="date" name="from_date" id="queueFromDate" value="{{ from_date or '' }}" title="Show messages inserted on or after this date">
@@ -87,7 +87,7 @@
             </form>
 
             <!-- Dynamic Bulk Actions Toolbar -->
-            <div id="queueBulkActionsToolbar" class="bulk-actions-toolbar" style="display: none; align-items: center; gap: 8px;">
+            <div id="queueBulkActionsToolbar" class="bulk-actions-toolbar service-bulk-actions" style="display: none;">
                 <span class="badge badge-blue font-mono" id="selectedQueueCountBadge">0 selected</span>
                 {% if user_role != 'reader' %}
                 <!-- Send / Move Selected to Another Queue -->
@@ -313,17 +313,17 @@
     {% else %}
     <!-- Queues List State -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; flex-wrap: wrap; gap: 12px;">
-            <div>
-                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white);">
-                    <i class="fa-solid fa-list-ol" style="color: var(--success); margin-right: 8px;"></i>
+        <div class="service-header-row">
+            <div class="service-header-left">
+                <h3 class="service-header-title">
+                    <i class="fa-solid fa-list-ol" style="color: var(--success);"></i>
                     Message Queues
                 </h3>
-                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Queue services partition message backlogs. Create, browse, or delete queue nodes.</p>
+                <p class="service-header-subtitle">Queue services partition message backlogs. Create, browse, or delete queue nodes.</p>
             </div>
             {% if is_admin %}
             <!-- In-line create queue form -->
-            <form method="POST" action="{{ url_for('ui.create_queue') }}" style="display: flex; align-items: center; gap: 8px;">
+            <form method="POST" action="{{ url_for('ui.create_queue') }}" class="service-header-form">
                 <div class="input-icon-group">
                     <i class="fa-solid fa-tag icon-inside" style="font-size: 13px; top: 12px;"></i>
                     <input type="text" name="name" required placeholder="new-queue-name" style="width: 200px; padding-left: 36px; height: 38px;">

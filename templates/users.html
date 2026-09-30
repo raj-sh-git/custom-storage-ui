@@ -6,17 +6,17 @@
 <div class="glass-card" style="border-radius: 12px; padding: 24px;">
     
     <!-- Top Header -->
-    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 18px; flex-wrap: wrap; gap: 14px;">
-        <div>
-            <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+    <div class="service-header-row">
+        <div class="service-header-left">
+            <h3 class="service-header-title">
                 <i class="fa-solid fa-users-gear" style="color: var(--accent-blue);"></i>
                 Portal User & Role Management
             </h3>
-            <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 4px;">
+            <p class="service-header-subtitle">
                 Manage user accounts, assign RBAC permissions (Admin, Contributor, Reader), enforce password resets, and import users in batch.
             </p>
         </div>
-        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <div class="service-header-actions">
             <!-- Single Add User Button -->
             <button type="button" class="btn btn-primary btn-sm" onclick="openAddUserModal()" style="display: flex; align-items: center; gap: 6px;">
                 <i class="fa-solid fa-user-plus"></i> Add User

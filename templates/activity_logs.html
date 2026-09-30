@@ -6,17 +6,17 @@
 <div class="glass-card" style="border-radius: 12px; padding: 24px;">
     
     <!-- Top Header -->
-    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 18px; flex-wrap: wrap; gap: 14px;">
-        <div>
-            <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+    <div class="service-header-row">
+        <div class="service-header-left">
+            <h3 class="service-header-title">
                 <i class="fa-solid fa-clipboard-list" style="color: var(--success);"></i>
                 Activity Audit Logs
             </h3>
-            <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 4px;">
+            <p class="service-header-subtitle">
                 Complete chronological audit trail of all operations, resource mutations, user logins, and administrative changes.
             </p>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <div class="service-header-actions">
             <!-- Export CSV -->
             <a href="{{ url_for('ui.export_activity_logs', format='csv', service=filter_service, username=filter_username, from_date=from_date, to_date=to_date, status=filter_status) }}" class="btn btn-neutral btn-sm" style="display: flex; align-items: center; gap: 6px;">
                 <i class="fa-solid fa-file-csv" style="color: var(--success);"></i> Export CSV

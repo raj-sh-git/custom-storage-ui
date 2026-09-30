@@ -11,26 +11,28 @@
     <!-- Table Entity Browser State -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
         <!-- Header -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
-            <div>
-                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+        <div class="service-header-row">
+            <div class="service-header-left">
+                <h3 class="service-header-title">
                     <i class="fa-solid fa-table" style="color: var(--warning);"></i>
                     Table: {{ table_name }}
                 </h3>
-                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Insert new key-value entities, perform queries, or delete entries inside this NoSQL table.</p>
+                <p class="service-header-subtitle">Insert new key-value entities, perform queries, or delete entries inside this NoSQL table.</p>
             </div>
-            <a href="{{ url_for('ui.list_tables') }}" class="btn btn-neutral btn-sm">
-                <i class="fa-solid fa-arrow-left"></i> Back to Tables
-            </a>
+            <div class="service-header-actions">
+                <a href="{{ url_for('ui.list_tables') }}" class="btn btn-neutral btn-sm">
+                    <i class="fa-solid fa-arrow-left"></i> Back to Tables
+                </a>
+            </div>
         </div>
 
         <!-- Toolbar (Insert Entity Form & Date Filter) -->
         <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-direction: column; gap: 14px;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px;">
+            <div class="service-toolbar-row" style="align-items: flex-end;">
                 {% if user_role != 'reader' %}
                 <!-- Insert Entity Form -->
-                <div>
-                    <h5 style="font-size: 12px; font-weight: 600; color: var(--text-white); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+                <div class="service-toolbar-left" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                    <h5 style="font-size: 12px; font-weight: 600; color: var(--text-white); margin-bottom: 0; text-transform: uppercase; letter-spacing: 0.5px;">
                         <i class="fa-solid fa-plus-circle" style="color: var(--warning); margin-right: 4px;"></i> Insert New Entity
                     </h5>
                     <form method="POST" action="{{ url_for('ui.add_entity', table_name=table_name) }}" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;">
@@ -64,14 +66,14 @@
                     </form>
                 </div>
                 {% else %}
-                <div style="font-size: 12px; color: var(--text-muted); font-style: italic;">
+                <div class="service-toolbar-left view-only-text">
                     <i class="fa-solid fa-eye" style="margin-right: 4px;"></i> View-only reader mode
                 </div>
                 {% endif %}
 
                 <!-- Date Range Filter Form (Right Side) -->
-                <div>
-                    <h5 style="font-size: 12px; font-weight: 600; color: var(--text-white); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+                <div class="service-toolbar-right" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                    <h5 style="font-size: 12px; font-weight: 600; color: var(--text-white); margin-bottom: 0; text-transform: uppercase; letter-spacing: 0.5px;">
                         <i class="fa-solid fa-filter" style="color: var(--warning); margin-right: 4px;"></i> Date Range Filter
                     </h5>
                     <form id="tableDateFilterForm" method="GET" action="{{ url_for('ui.view_table', table_name=table_name) }}" 
@@ -189,17 +191,17 @@
     {% else %}
     <!-- Tables List State -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
-            <div>
-                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white);">
-                    <i class="fa-solid fa-table" style="color: var(--warning); margin-right: 8px;"></i>
+        <div class="service-header-row">
+            <div class="service-header-left">
+                <h3 class="service-header-title">
+                    <i class="fa-solid fa-table" style="color: var(--warning);"></i>
                     NoSQL Tables
                 </h3>
-                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Table storage partitions structured NoSQL entities. Create, browse, or delete table targets.</p>
+                <p class="service-header-subtitle">Table storage partitions structured NoSQL entities. Create, browse, or delete table targets.</p>
             </div>
             {% if is_admin %}
             <!-- In-line create table form -->
-            <form method="POST" action="{{ url_for('ui.create_table') }}" style="display: flex; align-items: center; gap: 8px;">
+            <form method="POST" action="{{ url_for('ui.create_table') }}" class="service-header-form">
                 <div class="input-icon-group">
                     <i class="fa-solid fa-tag icon-inside" style="font-size: 13px; top: 12px;"></i>
                     <input type="text" name="name" required placeholder="newTable" style="width: 200px; padding-left: 36px; height: 38px;">

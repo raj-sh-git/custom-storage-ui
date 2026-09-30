@@ -3423,6 +3423,138 @@ body.light-theme .badge-purple {
     border-color: #d8b4fe;
 }
 
+/* ==========================================================================
+   Service Top Header & Toolbar Layout Stability Classes
+   ========================================================================== */
 
+.service-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 14px;
+    min-height: 52px;
+}
 
+.service-header-left {
+    flex: 1 1 300px;
+    min-width: 0;
+    max-width: 100%;
+}
 
+.service-header-title {
+    font-family: var(--font-heading);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-white);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    margin: 0;
+}
+
+body.light-theme .service-header-title {
+    color: #0f172a;
+}
+
+.service-header-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.service-header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.service-header-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.service-toolbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+}
+
+.service-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.service-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.file-name-preview {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.service-search-bulk-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+.service-search-wrapper,
+.service-search-form {
+    flex: 1 1 280px;
+    min-width: 240px;
+    max-width: 450px;
+}
+
+.service-bulk-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.view-only-text {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}

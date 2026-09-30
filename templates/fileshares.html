@@ -1,53 +1,57 @@
 {% extends "base.html" %}
 
 {% block title %}
-  {% if share %}Files in: {{ share }} - StorageUI{% else %}File Shares - StorageUI{% endif %}
+  {% set current_share = share or share_name %}
+  {% if current_share %}Files in: {{ current_share }} - StorageUI{% else %}File Shares - StorageUI{% endif %}
 {% endblock %}
 
 {% block content %}
+{% set current_share = share or share_name %}
 <div class="glass-card" style="border-radius: 12px; padding: 24px;">
     
-    {% if share %}
+    {% if current_share %}
     <!-- File Share Browser State -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
         <!-- Header -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
-            <div>
-                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white); display: flex; align-items: center; gap: 8px;">
+        <div class="service-header-row">
+            <div class="service-header-left">
+                <h3 class="service-header-title">
                     <i class="fa-solid fa-server" style="color: var(--accent-purple);"></i>
-                    Share: {{ share }}
+                    Share: {{ current_share }}
                 </h3>
-                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Upload multiple files, download data, or manage files in the root folder of this share.</p>
+                <p class="service-header-subtitle">Upload multiple files, download data, or manage files in the root folder of this share.</p>
             </div>
-            <a href="{{ url_for('ui.fileshares') }}" class="btn btn-neutral btn-sm">
-                <i class="fa-solid fa-arrow-left"></i> Back to Shares
-            </a>
+            <div class="service-header-actions">
+                <a href="{{ url_for('ui.fileshares') }}" class="btn btn-neutral btn-sm">
+                    <i class="fa-solid fa-arrow-left"></i> Back to Shares
+                </a>
+            </div>
         </div>
 
         <!-- Toolbar (Multi-file Upload & Date Filter) -->
         <div class="glass-card" style="padding: 16px; border-radius: 8px; box-shadow: none; display: flex; flex-direction: column; gap: 12px;">
-            <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;">
+            <div class="service-toolbar-row">
                 {% if user_role != 'reader' %}
                 <!-- Multi-file Upload Form -->
-                <form method="POST" action="{{ url_for('ui.upload_file', share=share) }}" enctype="multipart/form-data" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <form method="POST" action="{{ url_for('ui.upload_file', share=current_share) }}" enctype="multipart/form-data" class="service-toolbar-left">
                     <label class="btn btn-neutral btn-sm" style="margin-bottom: 0; cursor: pointer; display: flex; align-items: center; gap: 6px;">
                         <i class="fa-solid fa-file-circle-plus"></i> Choose Files
                         <input type="file" name="files" multiple style="display: none;" onchange="updateFilesNameDisplay(this, 'shareUploadNamePreview')">
                     </label>
-                    <span id="shareUploadNamePreview" style="font-size: 12px; color: var(--text-muted); font-weight: 500;">No files chosen</span>
+                    <span id="shareUploadNamePreview" class="file-name-preview">No files chosen</span>
                     <button type="submit" class="btn btn-primary btn-sm" style="background-color: var(--accent-purple); border-color: var(--accent-purple);">
                         <i class="fa-solid fa-cloud-arrow-up"></i> Upload Files
                     </button>
                 </form>
                 {% else %}
-                <div style="font-size: 12px; color: var(--text-muted); font-style: italic;">
+                <div class="service-toolbar-left view-only-text">
                     <i class="fa-solid fa-eye" style="margin-right: 4px;"></i> View-only reader mode
                 </div>
                 {% endif %}
 
                 <!-- Date Range Filter Form (Right of Upload Files) -->
-                <form id="fileShareDateFilterForm" method="GET" action="{{ url_for('ui.list_files', share=share) }}" 
-                      style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;" class="date-filter-group">
+                <form id="fileShareDateFilterForm" method="GET" action="{{ url_for('ui.list_files', share=current_share) }}" 
+                      class="date-filter-group service-toolbar-right">
                     <div style="display: flex; align-items: center; gap: 5px;">
                         <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500; white-space: nowrap;">From:</span>
                         <input type="date" name="from_date" id="fileShareFromDate" value="{{ from_date or '' }}" title="Show files modified on or after this date">
@@ -60,7 +64,7 @@
                         <i class="fa-solid fa-filter"></i>
                         <span>Show Files</span>
                     </button>
-                    <button type="button" class="btn btn-neutral btn-sm" onclick="clearFileShareDateFilter('{{ share }}')" 
+                    <button type="button" class="btn btn-neutral btn-sm" onclick="clearFileShareDateFilter('{{ current_share }}')" 
                             title="Clear date filter" style="display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 8px; font-size: 11.5px;">
                         <i class="fa-solid fa-xmark"></i>
                         <span>Clear</span>
@@ -105,26 +109,26 @@
                                 </button>
                                 <div class="action-dropdown-menu">
                                     {% if user_role != 'reader' %}
-                                    <button type="button" class="action-dropdown-item" onclick="openEditShareFileModal('{{ share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
+                                    <button type="button" class="action-dropdown-item" onclick="openEditShareFileModal('{{ current_share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
                                         <i class="fa-solid fa-pen-to-square"></i>
                                         <span>Edit</span>
                                     </button>
-                                    <button type="button" class="action-dropdown-item" onclick="openRenameShareFileModal('{{ share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
+                                    <button type="button" class="action-dropdown-item" onclick="openRenameShareFileModal('{{ current_share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
                                         <i class="fa-solid fa-i-cursor"></i>
                                         <span>Rename</span>
                                     </button>
-                                    <button type="button" class="action-dropdown-item" onclick="openMoveShareFileModal('{{ share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
+                                    <button type="button" class="action-dropdown-item" onclick="openMoveShareFileModal('{{ current_share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
                                         <i class="fa-solid fa-arrows-up-down-left-right"></i>
                                         <span>Move / Copy</span>
                                     </button>
                                     {% endif %}
-                                    <a href="{{ url_for('ui.download_file', share=share, path=(path + '/' + i.name) if path else i.name) }}" class="action-dropdown-item">
+                                    <a href="{{ url_for('ui.download_file', share=current_share, path=(path + '/' + i.name) if path else i.name) }}" class="action-dropdown-item">
                                         <i class="fa-solid fa-download"></i>
                                         <span>Download</span>
                                     </a>
                                     {% if user_role != 'reader' %}
-                                     <div class="action-dropdown-divider"></div>
-                                    <button type="button" class="action-dropdown-item danger" onclick="openDeleteShareFileModal('{{ share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
+                                    <div class="action-dropdown-divider"></div>
+                                    <button type="button" class="action-dropdown-item danger" onclick="openDeleteShareFileModal('{{ current_share }}', '{{ (path + '/' + i.name) if path else i.name }}')">
                                         <i class="fa-solid fa-trash-can"></i>
                                         <span>Delete</span>
                                     </button>
@@ -152,17 +156,17 @@
     {% else %}
     <!-- File Shares List State -->
     <div style="display: flex; flex-direction: column; gap: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
-            <div>
-                <h3 style="font-family: var(--font-heading); font-size: 20px; font-weight: 600; color: var(--text-white);">
-                    <i class="fa-solid fa-hard-drive" style="color: var(--accent-purple); margin-right: 8px;"></i>
+        <div class="service-header-row">
+            <div class="service-header-left">
+                <h3 class="service-header-title">
+                    <i class="fa-solid fa-hard-drive" style="color: var(--accent-purple);"></i>
                     File Shares
                 </h3>
-                <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Fully managed cloud file shares using SMB. Create, inspect, or delete shares.</p>
+                <p class="service-header-subtitle">Fully managed cloud file shares using SMB. Create, inspect, or delete shares.</p>
             </div>
             {% if is_admin %}
             <!-- In-line create share form -->
-            <form method="POST" action="{{ url_for('ui.create_share') }}" style="display: flex; align-items: center; gap: 8px;">
+            <form method="POST" action="{{ url_for('ui.create_share') }}" class="service-header-form">
                 <div class="input-icon-group">
                     <i class="fa-solid fa-tag icon-inside" style="font-size: 13px; top: 12px;"></i>
                     <input type="text" name="name" required placeholder="new-share-name" style="width: 200px; padding-left: 36px; height: 38px;">

@@ -2403,6 +2403,7 @@ def list_files(share):
     return render_template(
         'fileshares.html',
         items=paginated_items,
+        share=share,
         share_name=share,
         path=path,
         path_parts=parts,
