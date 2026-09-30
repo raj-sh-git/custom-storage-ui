@@ -1,44 +1,20 @@
-# Stage 1: Build dependencies and create a virtual environment
-FROM python:3.12-alpine AS builder
-
-# Install system dependencies required for building Python packages (like cryptography, cffi)
-RUN apk add --no-cache \
-    build-base \
-    libffi-dev \
-    openssl-dev \
-    rust \
-    cargo
+# Lightweight, fast production image using Debian Slim with precompiled wheels
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# Create a virtual environment
-RUN python -m venv /opt/venv
-# Enable venv
-ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Install dependencies into the virtual environment
+# Install pre-built wheels directly without compiling from source
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Stage 2: Production runner (Lightweight)
-FROM python:3.12-alpine
-
-# Install only the runtime dependencies needed for C-extensions (like cryptography)
-RUN apk add --no-cache libffi openssl
-
-WORKDIR /app
-
-# Copy the pre-built virtual environment from the builder stage
-COPY --from=builder /opt/venv /opt/venv
-
-# Enable venv in the runner
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Copy the application code
+# Copy application files
 COPY . .
 
 # Create a non-root user for security best practices
-RUN adduser -D appuser && chown -R appuser /app
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
 # Expose the port the app runs on in Docker
